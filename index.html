@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта происшествий России</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  :root{
+    --bg:#EDF1F4; --panel:#fff; --line:#C3D0DB; --fg:#14202B; --muted:#586B7C; --chip:#E3EAF0; --accent:#E4572E;
+    --dtp:#C9741A; --fire:#CF3B36; --wx:#2A76CF; --crime:#7656C2; --tech:#18907D;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#0D141B; --panel:#141D27; --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1; --chip:#1D2935; --accent:#FF7A4D;
+      --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; color-scheme:dark}
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;gap:10px;padding:12px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));
+       background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h1{margin:0;font-size:18px}
+  #meta{font-size:12px;color:var(--muted)}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+  .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);
+        background:var(--chip);color:var(--fg);font:inherit;cursor:pointer}
+  .chip i{width:9px;height:9px;border-radius:50%;background:var(--c)}
+  .chip[aria-pressed="false"]{background:transparent;color:var(--muted)}
+  .chip[aria-pressed="false"] i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--c)}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  select{flex:1 1 150px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit}
+  .stage{flex:1;min-height:0;display:grid;gap:10px;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(260px,1fr) minmax(0,36%)}
+  @media (min-width:860px){.stage{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:minmax(0,1fr)}}
+  #map{border-radius:10px;border:1px solid var(--line);min-height:0}
+  .feed{background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0}
+  .feed h2{margin:0;padding:10px 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+  #list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+  #list button{display:grid;grid-template-columns:10px 1fr;gap:10px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);
+        background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+  #list button:hover{background:var(--chip)}
+  #list .d{width:9px;height:9px;border-radius:50%;margin-top:5px;background:var(--c)}
+  #list small{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:11px}
+  .empty{padding:18px 14px;color:var(--muted)}
+  footer{font-size:11px;color:var(--muted)}
+  .pin{width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+  .pin.approx{border-style:dashed}
+  .pop b{display:block;margin-bottom:4px}
+  .pop p{margin:2px 0;color:#445}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Карта происшествий России</h1>
+  <span id="meta"></span>
+</header>
+<div class="chips" id="chips"></div>
+<div class="row">
+  <select id="period" aria-label="Период">
+    <option value="1">За 24 часа</option>
+    <option value="3">За 3 дня</option>
+    <option value="7">За 7 дней</option>
+    <option value="30" selected>За 30 дней</option>
+  </select>
+  <select id="region" aria-label="Регион"><option value="">Вся Россия</option></select>
+</div>
+<main class="stage">
+  <div id="map"></div>
+  <aside class="feed"><h2>Лента</h2><ul id="list"></ul></aside>
+</main>
+<footer>Демонстрационная версия: данные собраны 15.10.2026 вручную. Информация взята из открытых источников, указанных в карточках, и может быть неточной. Пунктирная метка означает примерное положение.</footer>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(function(){
+  var tg = window.Telegram && window.Telegram.WebApp; if (tg) { tg.ready(); tg.expand(); }
+  // Адрес API. Если сайт и API на одном домене через Nginx, оставьте как есть.
+  var EMBEDDED = [{"url": "https://mash.ru/news/211654/", "title": "Взрыв на подземном газопроводе «Средняя Азия — Центр»", "summary": "Столб пламени достигал около 70 метров. Подачу газа перекрыли, загорелась трава. О погибших и пострадавших не сообщается.", "type": "tech", "lat": 53.2, "lon": 45.2, "region": "Пензенская область", "place": "Волчково", "precise": 0, "ts": 1791882720, "source": "Mash"}, {"url": "https://mash.ru/news/211659/", "title": "В подвале частного дома найдена мёртвой медсестра", "summary": "Женщину искали с 9 октября. Вторая медсестра с ножевыми ранениями госпитализирована, проводится проверка.", "type": "crime", "lat": 51.77, "lon": 55.1, "region": "Оренбургская область", "place": "Оренбург", "precise": 0, "ts": 1791964800, "source": "Mash"}, {"url": "https://www.rbc.ru/rbcfreenews/6ad09612f5b83f0f1cd2d981", "title": "Остановлен наземный общественный транспорт из-за ракетной опасности", "summary": "Движение приостановлено на время угрозы.", "type": "wx", "lat": 53.2, "lon": 50.1, "region": "Самарская область", "place": "Самара", "precise": 0, "ts": 1792055580, "source": "РБК"}, {"url": "https://iz.ru/news", "title": "Смертельное ДТП с двумя автомобилями", "summary": "Подробности в ленте не приведены.", "type": "dtp", "lat": 55.68, "lon": 37.27, "region": "Московская область", "place": "Одинцовский округ", "precise": 0, "ts": 1792056600, "source": "Известия"}, {"url": "https://iz.ru/news", "title": "Пешеход погиб при столкновении с мотоциклом", "summary": "Происшествие на юго-западе Москвы. Точный адрес в ленте не указан.", "type": "dtp", "lat": 55.66, "lon": 37.52, "region": "Москва", "place": "Москва", "precise": 0, "ts": 1792056600, "source": "Известия"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Столкновение частного катера с баржей на Телецком озере", "summary": "Спасатели работают на месте. Данных о пострадавших в сводке нет.", "type": "wx", "lat": 51.6, "lon": 87.5, "region": "Республика Алтай", "place": "Телецкое озеро (Турочакский район)", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Нет холодного водоснабжения", "summary": "Сводка МЧС: отключение холодной воды в Тайгинском округе.", "type": "tech", "lat": 56.07, "lon": 85.6, "region": "Кемеровская область", "place": "Тайга", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Нет холодного водоснабжения", "summary": "Сводка МЧС: отключение холодной воды в городе.", "type": "tech", "lat": 55.44, "lon": 65.34, "region": "Курганская область", "place": "Курган", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Нет газоснабжения", "summary": "Сводка МЧС: отключение газа в Цумадинском районе.", "type": "tech", "lat": 42.5, "lon": 46, "region": "Дагестан", "place": "Цумадинский район", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Нет теплоснабжения", "summary": "Сводка МЧС: отключение отопления в Тосненском районе. Подачу тепла восстанавливают.", "type": "tech", "lat": 59.54, "lon": 30.88, "region": "Ленинградская область", "place": "Тосненский район", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Пожар в производственном здании", "summary": "Сводка МЧС: подразделения работают на месте пожара.", "type": "fire", "lat": 56.5, "lon": 84.97, "region": "Томская область", "place": "Томск", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842870", "title": "Нет электроснабжения", "summary": "Сводка МЧС: энергетики восстанавливают подачу света в Смидовичском районе.", "type": "tech", "lat": 48.6, "lon": 133.8, "region": "Еврейская автономная область", "place": "Смидовичский район", "precise": 0, "ts": 1792033200, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842241", "title": "Загорелись два склада с пластиковыми изделиями", "summary": "Сводка МЧС: пожар на складах в Аксае.", "type": "fire", "lat": 47.27, "lon": 39.87, "region": "Ростовская область", "place": "Аксай", "precise": 0, "ts": 1791946800, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842241", "title": "Пожар на территории рыбоперерабатывающего завода", "summary": "Сводка МЧС: возгорание на комбинате в Малокурильском.", "type": "fire", "lat": 43.87, "lon": 146.75, "region": "Сахалинская область", "place": "Малокурильское", "precise": 0, "ts": 1791946800, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842241", "title": "Нарушено электроснабжение", "summary": "Сводка МЧС: перебои с электричеством во Владивостоке.", "type": "tech", "lat": 43.12, "lon": 131.9, "region": "Приморский край", "place": "Владивосток", "precise": 0, "ts": 1791946800, "source": "МЧС России"}, {"url": "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/5842241", "title": "Нет газоснабжения", "summary": "Сводка МЧС: подачу газа в Биробиджане восстанавливают.", "type": "tech", "lat": 48.8, "lon": 132.95, "region": "Еврейская автономная область", "place": "Биробиджан", "precise": 0, "ts": 1791946800, "source": "МЧС России"}, {"url": "https://mash.ru/news/211664/", "title": "Волонтёры нашли больных и истощённых кошек, ранее отданных заводчицей", "summary": "Часть животных остались без зубов или зрения, у других переломы.", "type": "crime", "lat": 51.48, "lon": 46.12, "region": "Саратовская область", "place": "Энгельс", "precise": 0, "ts": 1791898800, "source": "Mash"}];
+  var TYPES = {
+    dtp:{name:"ДТП",c:"var(--dtp)"}, fire:{name:"Пожары",c:"var(--fire)"}, wx:{name:"ЧС и погода",c:"var(--wx)"},
+    crime:{name:"Правонарушения",c:"var(--crime)"}, tech:{name:"Аварии на сетях",c:"var(--tech)"}
+  };
+  var on = {}; Object.keys(TYPES).forEach(function(k){on[k]=true;});
+  var all = [], markers = {};
+
+  // Тексты приходят из новостных лент, поэтому всё выводится с экранированием.
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  function safeUrl(u){return /^https?:\/\//i.test(u)?u:"#";}
+  function ago(ts){var m=Math.round((Date.now()/1000-ts)/60); if(m<60)return Math.max(m,1)+" мин назад"; var h=Math.round(m/60); return h<24?h+" ч назад":Math.round(h/24)+" дн. назад";}
+  function when(ts){return new Date(ts*1000).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});}
+  function $(id){return document.getElementById(id);}
+
+  var map = L.map("map",{zoomControl:true}).setView([60,80],3);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© участники OpenStreetMap"}).addTo(map);
+  var cluster = L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:45}).addTo(map);
+
+  Object.keys(TYPES).forEach(function(k){
+    var b=document.createElement("button"); b.className="chip"; b.type="button"; b.setAttribute("aria-pressed","true"); b.style.setProperty("--c",TYPES[k].c);
+    b.innerHTML='<i></i>'+TYPES[k].name+' <span id="n-'+k+'"></span>';
+    b.onclick=function(){on[k]=!on[k]; b.setAttribute("aria-pressed",on[k]); render();};
+    $("chips").appendChild(b);
+  });
+  $("period").onchange=load; $("region").onchange=function(){render(true);};
+
+  function load(){
+    var lim=Date.now()/1000-(+$("period").value)*86400;
+    all=EMBEDDED.filter(function(i){return i.ts>=lim;});
+    fillRegions(); render();
+  }
+  function fillRegions(){
+    var sel=$("region"), cur=sel.value, set={};
+    all.forEach(function(i){if(i.region)set[i.region]=1;});
+    sel.innerHTML='<option value="">Вся Россия</option>';
+    Object.keys(set).sort(function(a,b){return a.localeCompare(b,"ru");}).forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;sel.appendChild(o);});
+    sel.value=set[cur]?cur:"";
+  }
+  function render(zoom){
+    var region=$("region").value, counts={}, shown=[];
+    all.forEach(function(i){
+      if(region && i.region!==region) return;
+      counts[i.type]=(counts[i.type]||0)+1;
+      if(on[i.type]) shown.push(i);
+    });
+    Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
+    cluster.clearLayers(); markers={};
+    shown.forEach(function(i){
+      var t=TYPES[i.type]||TYPES.tech;
+      var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'"></div>',iconSize:[14,14]});
+      var m=L.marker([i.lat,i.lon],{icon:icon});
+      m.bindPopup('<div class="pop"><b>'+esc(i.title)+'</b><p>'+esc(i.summary)+'</p><p>'+esc(i.place)+' · '+esc(when(i.ts))+'</p>'+
+        '<p><a href="'+esc(safeUrl(i.url))+'" target="_blank" rel="noopener noreferrer">'+esc(i.source)+'</a></p></div>');
+      cluster.addLayer(m); markers[i.url]=m;
+    });
+    $("meta").textContent="На карте: "+shown.length;
+    var ul=$("list"); ul.textContent="";
+    if(!shown.length){var li=document.createElement("li");li.className="empty";li.textContent="По выбранным фильтрам происшествий нет.";ul.appendChild(li);}
+    shown.slice(0,200).forEach(function(i){
+      var t=TYPES[i.type]||TYPES.tech, li=document.createElement("li"), b=document.createElement("button");
+      b.type="button"; b.style.setProperty("--c",t.c);
+      b.innerHTML='<span class="d"></span><span><b style="font-weight:500">'+esc(i.title)+'</b><small><span>'+esc(i.place)+'</span><span>'+esc(ago(i.ts))+'</span></small></span>';
+      b.onclick=function(){var m=markers[i.url]; if(m){cluster.zoomToShowLayer(m,function(){m.openPopup();});}};
+      li.appendChild(b); ul.appendChild(li);
+    });
+    if(zoom && shown.length){map.fitBounds(L.latLngBounds(shown.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[30,30]});}
+  }
+  load();
+})();
+</script>
+</body>
+</html>
