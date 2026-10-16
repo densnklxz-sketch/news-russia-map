@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <title>Карта происшествий России</title>
 <style>
   :root{
@@ -58,7 +59,7 @@
   .more{display:block;width:100%;max-width:640px;margin:0 0 12px}
   #subnote{font-size:12px;color:var(--accent);min-height:0}
   select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
-  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px}
 
   /* ленты */
   .scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px max(14px,env(safe-area-inset-right,0px)) 18px max(14px,env(safe-area-inset-left,0px))}
@@ -98,7 +99,7 @@
   .nrow b{display:block;font-weight:500}
   .nrow small{color:var(--muted)}
 
-  .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+  .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
   .pin.approx{border-style:dashed}
   .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
 </style>
@@ -120,6 +121,7 @@
         <div class="chips" id="chips"></div>
       </div>
       <div class="fx" id="fx" hidden>
+        <button class="chip" id="darkbtn" type="button" aria-pressed="true" style="--c:var(--muted)">🌙 Тёмная карта</button>
         <input id="q" type="search" placeholder="Поиск: город, улица, слово" aria-label="Поиск" autocomplete="off">
         <select id="period" aria-label="Период">
           <option value="1">За 24 часа</option>
@@ -188,13 +190,14 @@
   /* карта */
   /* Яндекс Карты (JS API 2.1). Ключ подставляет build_site.py из переменной YMAPS_KEY */
   var YMAPS_KEY = "__YMAPS_KEY__";
+  var BUILD = "__BUILD__";  /* время сборки страницы: видно во вкладке «Уведомления», помогает понять, не показывает ли Telegram старую версию */
   var map = null, cluster = null, pinLayout = null;
-  function noMap(msg){var d=document.createElement("div"); d.className="nomap"; d.textContent=msg; $("map").appendChild(d);}
+  function noMap(msg){var d=document.createElement("div"); d.className="nomap"; d.textContent=msg+" (сборка: "+BUILD+")"; $("map").appendChild(d);}
   function initMap(){
     map = new ymaps.Map("map",{center:[62,95],zoom:3,controls:[]},{minZoom:2,suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
     map.setBounds([[42,27],[68,170]],{checkZoomRange:true});
     pinLayout = ymaps.templateLayoutFactory.createClass('{{ properties.pin|raw }}');
-    cluster = new ymaps.Clusterer({preset:"islands#invertedDarkBlueClusterIcons",gridSize:56,groupByCoordinates:false,clusterDisableClickZoom:false,hasBalloon:false});
+    cluster = new ymaps.Clusterer({preset:"islands#invertedDarkBlueClusterIcons",gridSize:80,groupByCoordinates:false,clusterDisableClickZoom:false,hasBalloon:false});
     map.geoObjects.add(cluster);
     map.events.add("click",hideSheet);
     applyMapTheme();
@@ -205,10 +208,13 @@
     var s=document.createElement("script");
     s.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YMAPS_KEY)+"&lang=ru_RU";
     s.onload=function(){ymaps.ready(initMap);};
-    s.onerror=function(){noMap("Не удалось загрузить Яндекс Карты. Лента и уведомления работают.");};
+    s.onerror=function(){noMap("Не удалось загрузить Яндекс Карты. Проверьте интернет. Лента и уведомления работают.");};
     document.head.appendChild(s);
+    setTimeout(function(){if(!map&&!document.querySelector(".nomap"))noMap("Карта долго не загружается. Закройте приложение и откройте снова. Лента и уведомления работают.");},10000);
   }
+  var darkMapPref = store("nm_darkmap")!=="0";   /* тёмная карта через CSS-фильтр нагружает слабые телефоны: её можно выключить */
   function isDark(){
+    if(!darkMapPref)return false;
     var t=document.documentElement.getAttribute("data-theme");
     if(t)return t==="dark";
     return !!(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -245,6 +251,8 @@
   regionList.forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;$("region").appendChild(o);});
   $("fbtn").onclick=function(){var h=$("fx").hidden; $("fx").hidden=!h; this.setAttribute("aria-expanded",h);};
   var feedLimit=60;
+  $("darkbtn").setAttribute("aria-pressed",darkMapPref);
+  $("darkbtn").onclick=function(){darkMapPref=!darkMapPref; this.setAttribute("aria-pressed",darkMapPref); store("nm_darkmap",darkMapPref?"1":"0"); applyMapTheme();};
   $("period").onchange=function(){feedLimit=60;render();};
   $("region").onchange=function(){feedLimit=60;render(true);};
   var qTimer=null;
@@ -268,7 +276,7 @@
 
     if(map){
       cluster.removeAll();
-      var pms=list.map(function(i){
+      var pms=list.slice(0,400).map(function(i){
         var t=TYPES[i.type]||TYPES.tech;
         var pm=new ymaps.Placemark([i.lat,i.lon],
           {pin:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>'},
@@ -344,7 +352,7 @@
       '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button><div id="subnote" role="status"></div>'+
       '<p style="font-size:12px">Нажмите «Start» в чате с ботом. Подтверждение придёт в течение 10–15 минут, дальше бот присылает до 5 новых происшествий за раз. Отписаться: команда /stop в чате с ботом. Канал с новостями: <a data-ext="1" target="_blank" rel="noopener noreferrer" href="https://t.me/nrmpnews" style="color:var(--accent)">t.me/nrmpnews</a></p></div>'+
       '<div class="panel"><h2>Новое с вашего прошлого визита</h2><div id="newlist"></div>'+
-      '</div>';
+      '<p style="font-size:11px;opacity:.7">Версия страницы: '+esc(BUILD)+'</p></div>';
     var st=$("subTypes");
     Object.keys(TYPES).forEach(function(k){
       var b=document.createElement("button"); b.className="chip"; b.type="button"; b.style.setProperty("--c",TYPES[k].c); b.setAttribute("aria-pressed",!!sub.types[k]);
