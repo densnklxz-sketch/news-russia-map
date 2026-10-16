@@ -2,7 +2,7 @@ name: Обновление карты
 
 on:
   schedule:
-    - cron: "*/20 * * * *"     # каждые 20 минут (GitHub может задерживать запуск на несколько минут)
+    - cron: "*/10 * * * *"     # каждые 10 минут (GitHub может задерживать запуск на несколько минут)
   workflow_dispatch:           # кнопка «Run workflow» для ручного запуска
     inputs:
       check_only:
@@ -64,6 +64,14 @@ jobs:
           CHECK_ONLY: ${{ inputs.check_only && '1' || '' }}
         run: python post_channel.py
 
+      - name: Подписки и уведомления
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          DB_PATH: incidents.db
+          MAX_PER_USER: "5"
+        run: python notify_bot.py
+
       - name: Сохранить базу
         uses: actions/cache/save@v4
         with:
@@ -83,4 +91,3 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
-
