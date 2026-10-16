@@ -1,51 +1,23 @@
-"""Сборка страницы карты из базы: шаблон web/template.html + свежие записи -> готовый index.html.
+"""Один раз загрузить в базу демо-записи из web/index-demo.html (чтобы карта не была пустой до первых сборов).
 
-Один раз:      python build_site.py
-По кругу:      python build_site.py --loop 300     (раз в 5 минут)
-Переменные:    DB_PATH, SITE_OUT (куда писать, по умолчанию /var/www/incident-map/index.html), SITE_DAYS (за сколько дней, 14)
+python seed_demo.py
 """
 import json
-import os
-import sqlite3
-import sys
+import re
 import time
 
-DB_PATH = os.environ.get("DB_PATH", "incidents.db")
-OUT = os.environ.get("SITE_OUT", "/var/www/incident-map/index.html")
-DAYS = int(os.environ.get("SITE_DAYS", "14"))
-TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "template.html")
-FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img"
+import collector
 
-
-def build():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    rows = [dict(r) for r in con.execute(
-        f"SELECT {FIELDS} FROM incidents WHERE ts >= ? ORDER BY ts DESC LIMIT 3000",
-        (int(time.time()) - DAYS * 86400,))]
-    con.close()
-    for r in rows:
-        if not r.get("img"):
-            r.pop("img", None)
-    html = open(TEMPLATE, encoding="utf-8").read()
-    # "</" внутри <script> ломает разметку, поэтому экранируем
-    data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
-    html = html.replace("__DATA__", data)
-    os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
-    tmp = OUT + ".tmp"
-    open(tmp, "w", encoding="utf-8").write(html)
-    os.replace(tmp, OUT)  # подмена файла целиком, посетитель не увидит половину страницы
-    print(f"{time.strftime('%H:%M:%S')} записано {len(rows)} происшествий -> {OUT}")
-
-
-if __name__ == "__main__":
-    if "--loop" in sys.argv:
-        pause = int(sys.argv[sys.argv.index("--loop") + 1])
-        while True:
-            try:
-                build()
-            except Exception as e:  # сбой одной сборки не должен останавливать службу
-                print("ошибка сборки:", e, file=sys.stderr)
-            time.sleep(pause)
-    else:
-        build()
+s = open("web/index-demo.html", encoding="utf-8").read()
+data = json.loads(re.search(r"var DATA = (\[.*?\]);\n", s, re.S).group(1))
+con = collector.db()
+n = 0
+for i in data:
+    cur = con.execute(
+        "INSERT OR IGNORE INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,img) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
+        (i["url"], i["title"], i.get("summary", ""), i["type"], i["lat"], i["lon"], i["region"], i["place"],
+         i.get("precise", 0), i["ts"], i["source"], int(time.time()), i.get("img")))
+    n += cur.rowcount
+con.commit()
+print("добавлено записей:", n)

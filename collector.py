@@ -1,330 +1,308 @@
-<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Карта происшествий России</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
-<style>
-  :root{
-    --bg:#EDF1F4; --panel:#FFFFFF; --glass:rgba(255,255,255,.93); --line:#C9D4DD; --fg:#14202B; --muted:#5A6C7C;
-    --chip:#E3EAF0; --accent:#D9461F; --on-accent:#fff;
-    --dtp:#C9741A; --fire:#CF3B36; --wx:#2A76CF; --crime:#7656C2; --tech:#18907D; --mil:#B03A7A;
-  }
-  @media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-      --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
-      --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
-      --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
-    }
-  }
-  :root[data-theme="dark"]{
-    --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
-    --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
-    --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0;overflow:hidden}
-  body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
-  button{font:inherit;color:inherit}
-  #app{height:100%;display:flex;flex-direction:column}
-  .views{flex:1;position:relative;min-height:0}
-  .view{position:absolute;inset:0;display:none}
-  .view.active{display:block}
-  #map{position:absolute;inset:0;background:var(--bg)}
+"""Сборщик происшествий: RSS -> отбор -> координаты -> SQLite.
 
-  /* нижнее меню */
-  .tabs{display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-  .tab{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px 6px;background:none;border:0;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer}
-  .tab svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-  .tab[aria-selected="true"]{color:var(--accent)}
-  .badge{position:absolute;top:3px;left:calc(50% + 6px);min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:600;line-height:17px;text-align:center;padding:0 4px}
-  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+Запуск один раз:      python collector.py
+Запуск по кругу:      python collector.py --loop 600     (раз в 10 минут)
+"""
+import calendar
+import html
+import os
+import re
+import sqlite3
+import sys
+import time
 
-  /* фильтры */
-  .filters{display:flex;flex-direction:column;gap:6px}
-  .frow{display:flex;gap:6px;align-items:center;min-width:0}
-  .fbtn{flex:0 0 auto;width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--chip);display:grid;place-items:center;cursor:pointer}
-  .fbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
-  .fbtn[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-  .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0}
-  .chips::-webkit-scrollbar{display:none}
-  .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:var(--chip);cursor:pointer;font-weight:500;font-size:13px}
-  .chip i{width:9px;height:9px;border-radius:50%;background:var(--c)}
-  .chip small{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
-  .chip[aria-pressed="false"]{background:transparent;color:var(--muted)}
-  .chip[aria-pressed="false"] i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--c)}
-  .fx{display:flex;gap:6px}
-  select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
-  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+import feedparser
+import requests
 
-  /* ленты */
-  .scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px max(14px,env(safe-area-inset-right,0px)) 18px max(14px,env(safe-area-inset-left,0px))}
-  #view-feed .filters{position:sticky;top:-10px;z-index:5;margin:-10px -2px 10px;padding:10px 2px 8px;background:var(--bg)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:12px;max-width:640px}
-  .pic{position:relative;aspect-ratio:16/9;background:var(--chip);overflow:hidden}
-  .pic img{width:100%;height:100%;object-fit:cover;display:block}
-  .credit{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:2px 8px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font-size:11px}
-  .cbody{padding:11px 13px 13px;display:flex;flex-direction:column;gap:6px}
-  .meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
-  .tag{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--c)}
-  .tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
-  .card h3{margin:0;font-size:15px;line-height:1.3;text-wrap:balance}
-  .card p{margin:0;color:var(--muted)}
-  .place{font-size:12px;color:var(--muted)}
-  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
-  .btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--chip);font-size:13px;font-weight:500;text-decoration:none;color:var(--fg);cursor:pointer}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-  .empty{padding:24px 8px;color:var(--muted);text-align:center}
+DB_PATH = os.environ.get("DB_PATH", "incidents.db")
+# Nominatim просит указывать контакт в User-Agent. Подставьте свой адрес.
+USER_AGENT = os.environ.get("USER_AGENT", "incident-map-collector/0.1 (contact: you@example.com)")
+YANDEX_KEY = os.environ.get("YANDEX_GEOCODER_KEY", "")  # если задан, используется вместо Nominatim
 
-  /* карточка на карте */
-  #sheet{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:8px;z-index:900;max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(8,16,24,.28);display:flex;gap:10px;padding:10px}
-  #sheet[hidden]{display:none}
-  #sheet .thumb{flex:0 0 88px;height:88px;border-radius:10px;overflow:hidden;background:var(--chip)}
-  #sheet .thumb img{width:100%;height:100%;object-fit:cover;display:block}
-  #sheet .txt{min-width:0;display:flex;flex-direction:column;gap:4px;flex:1}
-  #sheet h3{margin:0;font-size:14px;line-height:1.3;padding-right:26px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-  #sheet .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--muted);font-size:20px;cursor:pointer}
+# Ленты. Первые пять проверены в октябре 2026 (отдают свежие записи без авторизации).
+# Остальные нужно проверить на сервере: curl -I АДРЕС. Нерабочие просто пропускаются.
+FEEDS = [
+    ("РИА Новости", "https://ria.ru/export/rss2/archive/index.xml"),
+    ("ТАСС", "https://tass.ru/rss/v2.xml"),
+    ("Lenta.ru", "https://lenta.ru/rss/news"),
+    ("МК", "https://www.mk.ru/rss/incident/index.xml"),
+    ("Интерфакс", "https://www.interfax.ru/rss.asp"),
+    ("Известия", "https://iz.ru/xml/rss/all.xml"),
+    ("РБК", "https://rssexport.rbc.ru/rbcnews/news/30/full.rss"),
+    ("Коммерсантъ", "https://www.kommersant.ru/RSS/news.xml"),
+    ("МЧС", "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss"),
+]
+# Свои ленты можно дописать без правки кода: файл feeds.txt, строки вида  Название|https://адрес
+if os.path.exists("feeds.txt"):
+    for line in open("feeds.txt", encoding="utf-8"):
+        if "|" in line and not line.lstrip().startswith("#"):
+            name, url = line.strip().split("|", 1)
+            FEEDS.append((name.strip(), url.strip()))
 
-  /* уведомления */
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;max-width:640px;display:flex;flex-direction:column;gap:10px}
-  .panel h2{margin:0;font-size:16px}
-  .panel p{margin:0;color:var(--muted)}
-  .lab{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-  .nrow{display:grid;grid-template-columns:10px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left;width:100%}
-  .nrow .d{width:9px;height:9px;border-radius:50%;background:var(--c);margin-top:5px}
-  .nrow b{display:block;font-weight:500}
-  .nrow small{color:var(--muted)}
+MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "3"))  # старые записи из лент не берём
 
-  .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
-  .pin.approx{border-style:dashed}
-  .leaflet-container{font:inherit;background:var(--bg)}
-  .leaflet-control-attribution{font-size:10px}
-</style>
-</head>
-<body>
-<div id="app">
-  <div class="views">
-    <section class="view active" id="view-map" aria-label="Карта">
-      <div id="map"></div>
-      <div id="sheet" hidden></div>
-    </section>
-    <section class="view" id="view-feed" aria-label="Лента"><div class="scroll" id="feedscroll"><div id="feedlist"></div></div></section>
-    <section class="view" id="view-notify" aria-label="Уведомления"><div class="scroll" id="notifyscroll"></div></section>
-    <div class="filters" id="filters">
-      <div class="frow">
-        <button class="fbtn" id="fbtn" type="button" aria-label="Период и регион" aria-expanded="false">
-          <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
-        </button>
-        <div class="chips" id="chips"></div>
-      </div>
-      <div class="fx" id="fx" hidden>
-        <select id="period" aria-label="Период">
-          <option value="1">За 24 часа</option>
-          <option value="3">За 3 дня</option>
-          <option value="7">За 7 дней</option>
-          <option value="30" selected>За 30 дней</option>
-        </select>
-        <select id="region" aria-label="Регион"><option value="">Вся Россия</option></select>
-      </div>
-    </div>
-  </div>
-  <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" data-tab="map" aria-selected="true">
-      <svg viewBox="0 0 24 24"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7 9 4Z"/><path d="M9 4v13M15 7v13"/></svg>Карта
-    </button>
-    <button class="tab" role="tab" data-tab="feed" aria-selected="false">
-      <svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>Лента
-    </button>
-    <button class="tab" role="tab" data-tab="notify" aria-selected="false" id="tabnotify">
-      <svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15L6 17Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>Уведомления
-      <span class="badge" id="badge" hidden></span>
-    </button>
-  </nav>
-</div>
+# Правила типов. Первое совпадение выигрывает, порядок важен.
+RULES = [
+    ("mil", r"\bБПЛА\b|беспилотн|дрон(ы|ов|ами)?\b|\bПВО\b|обстрел|ракетн\w+ (атак|удар|опасност)|атак\w+ ВСУ|удар\w* по (НПЗ|нефтебаз|подстанц)"),
+    ("fire", r"пожар|возгоран|загорел|горит|горели|сгорел"),
+    ("dtp", r"\bДТП\b|столкнул|опрокинул|наезд|сбил[аи]?\b|разбил(ся|ись)\s+на\s+(трассе|дороге)"),
+    ("wx", r"наводнен|подтоплен|паводок|ураган|сильный ветер|снегопад|гололёд|гололед|лавин|землетряс|\bсель\b|шторм|ледяной дождь"),
+    ("tech", r"отключени|без (света|воды|отопления|газа|электричества)|нет (света|воды|отопления|газа)|"
+             r"порыв|прорыв\w* (труб|водопровод|теплотрасс)|взрыв газа|обрушени|авария на (водопровод|теплотрасс|ЛЭП|подстанц)"),
+    ("crime", r"убийств|убит|ограбл|краж[аи]|похищен|нападени|драк[аиу]|мошенни|задержан|изнасил"),
+]
+# Эти темы на карту не берём: политика, суды и приговоры (это не происшествия).
+STOP = re.compile(r"\bСВО\b|Минобороны|перегово|санкци|выборы|Госдум|приговор|осужд|суд (признал|оставил|рассмотр)|арестован[аы]? на|заочно", re.I)
+# Чувствительные темы (насилие над детьми, останки и т. п.) на карту не попадают.
+SENSITIVE = re.compile(r"насил|расчлен|изнасил|педофил|суицид|самоубийств|покончил с собой|тел[оа]? ребён|части тел|останки|детск\w+ порн|избил\w* (девочк|мальчик|подрост)", re.I)
 
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script>
-(function(){
-  var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); }
+# Крупные города: быстрый путь без геокодера. (широта, долгота, регион)
+GAZETTEER = {
+    "Москва": (55.7558, 37.6173, "Москва"), "Санкт-Петербург": (59.9343, 30.3351, "Санкт-Петербург"),
+    "Новосибирск": (55.0302, 82.9204, "Новосибирская область"), "Екатеринбург": (56.8389, 60.6057, "Свердловская область"),
+    "Казань": (55.7961, 49.1064, "Татарстан"), "Нижний Новгород": (56.3269, 44.0059, "Нижегородская область"),
+    "Краснодар": (45.0355, 38.9753, "Краснодарский край"), "Ростов-на-Дону": (47.2357, 39.7015, "Ростовская область"),
+    "Самара": (53.1959, 50.1002, "Самарская область"), "Уфа": (54.7388, 55.9721, "Башкортостан"),
+    "Красноярск": (56.0153, 92.8932, "Красноярский край"), "Иркутск": (52.2864, 104.2807, "Иркутская область"),
+    "Владивосток": (43.1155, 131.8855, "Приморский край"), "Хабаровск": (48.4802, 135.0719, "Хабаровский край"),
+    "Мурманск": (68.9585, 33.0827, "Мурманская область"), "Воронеж": (51.6605, 39.2003, "Воронежская область"),
+    "Волгоград": (48.708, 44.5133, "Волгоградская область"), "Омск": (54.9885, 73.3242, "Омская область"),
+    "Тюмень": (57.153, 65.5343, "Тюменская область"), "Челябинск": (55.1644, 61.4368, "Челябинская область"),
+    "Пермь": (58.0105, 56.2502, "Пермский край"), "Сочи": (43.6028, 39.7342, "Краснодарский край"),
+    "Оренбург": (51.7727, 55.0988, "Оренбургская область"), "Саратов": (51.5336, 46.0343, "Саратовская область"),
+    "Калининград": (54.7104, 20.4522, "Калининградская область"), "Томск": (56.4977, 84.9744, "Томская область"),
+    "Курган": (55.441, 65.3411, "Курганская область"), "Махачкала": (42.9849, 47.5047, "Дагестан"),
+    "Рязань": (54.6269, 39.6916, "Рязанская область"), "Тула": (54.1961, 37.6182, "Тульская область"),
+    "Калуга": (54.5293, 36.2754, "Калужская область"), "Брянск": (53.2434, 34.3641, "Брянская область"),
+    "Курск": (51.7304, 36.1926, "Курская область"), "Белгород": (50.5997, 36.5983, "Белгородская область"),
+    "Орёл": (52.9703, 36.0635, "Орловская область"), "Липецк": (52.6088, 39.5992, "Липецкая область"),
+    "Тамбов": (52.7213, 41.4523, "Тамбовская область"), "Пенза": (53.1951, 45.0183, "Пензенская область"),
+    "Ульяновск": (54.3142, 48.4031, "Ульяновская область"), "Тверь": (56.8587, 35.9176, "Тверская область"),
+    "Ярославль": (57.6261, 39.8845, "Ярославская область"), "Владимир": (56.1290, 40.4066, "Владимирская область"),
+    "Иваново": (57.0004, 40.9739, "Ивановская область"), "Кострома": (57.7679, 40.9269, "Костромская область"),
+    "Смоленск": (54.7826, 32.0453, "Смоленская область"), "Псков": (57.8136, 28.3496, "Псковская область"),
+    "Великий Новгород": (58.5213, 31.2757, "Новгородская область"), "Вологда": (59.2205, 39.8915, "Вологодская область"),
+    "Архангельск": (64.5393, 40.5187, "Архангельская область"), "Сыктывкар": (61.6688, 50.8364, "Коми"),
+    "Петрозаводск": (61.7849, 34.3469, "Карелия"), "Киров": (58.6036, 49.6680, "Кировская область"),
+    "Ижевск": (56.8527, 53.2115, "Удмуртия"), "Чебоксары": (56.1439, 47.2489, "Чувашия"),
+    "Йошкар-Ола": (56.6316, 47.8861, "Марий Эл"), "Саранск": (54.1874, 45.1839, "Мордовия"),
+    "Астрахань": (46.3497, 48.0408, "Астраханская область"), "Элиста": (46.3078, 44.2558, "Калмыкия"),
+    "Ставрополь": (45.0428, 41.9734, "Ставропольский край"), "Нальчик": (43.4981, 43.6189, "Кабардино-Балкария"),
+    "Владикавказ": (43.0241, 44.6813, "Северная Осетия"), "Грозный": (43.3178, 45.6949, "Чечня"),
+    "Магнитогорск": (53.4186, 59.0472, "Челябинская область"), "Сургут": (61.254, 73.3962, "ХМАО"),
+    "Нижневартовск": (60.9344, 76.5531, "ХМАО"), "Ханты-Мансийск": (61.0, 69.0, "ХМАО"),
+    "Новокузнецк": (53.7557, 87.1099, "Кемеровская область"), "Кемерово": (55.3333, 86.0833, "Кемеровская область"),
+    "Барнаул": (53.3606, 83.7636, "Алтайский край"), "Абакан": (53.7212, 91.4292, "Хакасия"),
+    "Улан-Удэ": (51.8335, 107.5841, "Бурятия"), "Чита": (52.0339, 113.5010, "Забайкальский край"),
+    "Якутск": (62.0355, 129.6755, "Якутия"), "Южно-Сахалинск": (46.9591, 142.7380, "Сахалинская область"),
+    "Петропавловск-Камчатский": (53.0452, 158.6483, "Камчатский край"), "Благовещенск": (50.2907, 127.5272, "Амурская область"),
+    "Магадан": (59.5638, 150.8035, "Магаданская область"), "Севастополь": (44.6167, 33.5254, "Севастополь"),
+    "Симферополь": (44.9521, 34.1024, "Крым"), "Ялта": (44.4952, 34.1663, "Крым"), "Керчь": (45.3562, 36.4674, "Крым"),
+    "Новороссийск": (44.7239, 37.7708, "Краснодарский край"), "Анапа": (44.8940, 37.3162, "Краснодарский край"),
+    "Таганрог": (47.2362, 38.8969, "Ростовская область"), "Шахты": (47.7085, 40.2142, "Ростовская область"),
+    "Подольск": (55.4242, 37.5547, "Московская область"), "Балашиха": (55.7963, 37.9382, "Московская область"),
+    "Люберцы": (55.6772, 37.8932, "Московская область"), "Мытищи": (55.9116, 37.7307, "Московская область"),
+    "Красногорск": (55.8317, 37.3295, "Московская область"), "Химки": (55.8970, 37.4297, "Московская область"),
+    "Одинцово": (55.6780, 37.2777, "Московская область"), "Королёв": (55.9142, 37.8545, "Московская область"),
+    "Энгельс": (51.4854, 46.1267, "Саратовская область"), "Тольятти": (53.5078, 49.4204, "Самарская область"),
+    "Набережные Челны": (55.7436, 52.3958, "Татарстан"), "Нижнекамск": (55.6366, 51.8209, "Татарстан"),
+    "Стерлитамак": (53.6300, 55.9500, "Башкортостан"), "Новый Уренгой": (66.0833, 76.6333, "ЯНАО"),
+    "Норильск": (69.3558, 88.1893, "Красноярский край"), "Тобольск": (58.1989, 68.2536, "Тюменская область"),
+}
 
-  var BOT = "NewsRussiaMapBot";
-  var DATA = __DATA__;
-  DATA.sort(function(a,b){return b.ts-a.ts;});
+# Регионы: запасной вариант, когда в тексте нет города из списка. Центры примерные, метка будет пунктирной.
+# (основа названия в тексте, регион, широта, долгота)
+REGIONS = [
+    ("Белгородск", "Белгородская область", 50.6, 36.6), ("Брянск", "Брянская область", 53.24, 34.36),
+    ("Курск", "Курская область", 51.73, 36.19), ("Орловск", "Орловская область", 52.97, 36.07),
+    ("Калужск", "Калужская область", 54.51, 36.26), ("Тульск", "Тульская область", 54.19, 37.62),
+    ("Рязанск", "Рязанская область", 54.63, 39.69), ("Воронежск", "Воронежская область", 51.66, 39.2),
+    ("Липецк", "Липецкая область", 52.61, 39.6), ("Тамбовск", "Тамбовская область", 52.72, 41.45),
+    ("Пензенск", "Пензенская область", 53.2, 45.0), ("Саратовск", "Саратовская область", 51.53, 46.03),
+    ("Волгоградск", "Волгоградская область", 48.71, 44.51), ("Ростовск", "Ростовская область", 47.24, 39.7),
+    ("Краснодарск", "Краснодарский край", 45.04, 38.98), ("Ставропольск", "Ставропольский край", 45.04, 41.97),
+    ("Астраханск", "Астраханская область", 46.35, 48.04), ("Самарск", "Самарская область", 53.2, 50.1),
+    ("Ульяновск", "Ульяновская область", 54.31, 48.4), ("Оренбургск", "Оренбургская область", 51.77, 55.1),
+    ("Челябинск", "Челябинская область", 55.16, 61.44), ("Свердловск", "Свердловская область", 56.84, 60.6),
+    ("Тюменск", "Тюменская область", 57.15, 65.53), ("Курганск", "Курганская область", 55.44, 65.34),
+    ("Пермск", "Пермский край", 58.01, 56.25), ("Кировск", "Кировская область", 58.6, 49.67),
+    ("Нижегородск", "Нижегородская область", 56.33, 44.0), ("Владимирск", "Владимирская область", 56.13, 40.41),
+    ("Ивановск", "Ивановская область", 57.0, 40.97), ("Костромск", "Костромская область", 57.77, 40.93),
+    ("Ярославск", "Ярославская область", 57.63, 39.88), ("Тверск", "Тверская область", 56.86, 35.92),
+    ("Смоленск", "Смоленская область", 54.78, 32.05), ("Московск", "Московская область", 55.75, 37.62),
+    ("Ленинградск", "Ленинградская область", 59.9, 30.3), ("Псковск", "Псковская область", 57.81, 28.35),
+    ("Новгородск", "Новгородская область", 58.52, 31.28), ("Вологодск", "Вологодская область", 59.22, 39.89),
+    ("Архангельск", "Архангельская область", 64.54, 40.52), ("Мурманск", "Мурманская область", 68.96, 33.08),
+    ("Калининградск", "Калининградская область", 54.71, 20.45), ("Новосибирск", "Новосибирская область", 55.03, 82.92),
+    ("Омск", "Омская область", 54.99, 73.32), ("Томск", "Томская область", 56.5, 84.97),
+    ("Кемеровск", "Кемеровская область", 55.35, 86.09), ("Иркутск", "Иркутская область", 52.29, 104.28),
+    ("Красноярск", "Красноярский край", 56.01, 92.89), ("Алтайск", "Алтайский край", 53.35, 83.77),
+    ("Забайкальск", "Забайкальский край", 52.03, 113.5), ("Хабаровск", "Хабаровский край", 48.48, 135.07),
+    ("Приморск", "Приморский край", 43.12, 131.89), ("Амурск", "Амурская область", 50.29, 127.53),
+    ("Сахалинск", "Сахалинская область", 46.96, 142.74), ("Камчат", "Камчатский край", 53.05, 158.65),
+    ("Магаданск", "Магаданская область", 59.56, 150.8), ("Еврейск", "Еврейская автономная область", 48.8, 132.9),
+    ("Татарстан", "Татарстан", 55.8, 49.1), ("Башкири", "Башкортостан", 54.74, 55.97), ("Башкортостан", "Башкортостан", 54.74, 55.97),
+    ("Дагестан", "Дагестан", 42.98, 47.5), ("Чечн", "Чечня", 43.32, 45.69), ("Крым", "Крым", 44.95, 34.1),
+    ("Бурят", "Бурятия", 51.83, 107.58), ("Якут", "Якутия", 62.04, 129.68), ("Саха", "Якутия", 62.04, 129.68),
+    ("Коми", "Коми", 61.67, 50.84), ("Карели", "Карелия", 61.78, 34.35), ("Удмурт", "Удмуртия", 56.85, 53.21),
+    ("Чуваш", "Чувашия", 56.14, 47.25), ("Мордови", "Мордовия", 54.19, 45.18), ("Марий", "Марий Эл", 56.63, 47.89),
+    ("Калмык", "Калмыкия", 46.31, 44.26), ("Хакас", "Хакасия", 53.72, 91.43), ("Тыв", "Тыва", 51.72, 94.45),
+    ("Кабардино", "Кабардино-Балкария", 43.5, 43.62), ("Осети", "Северная Осетия", 43.02, 44.68),
+    ("Ингуше", "Ингушетия", 43.17, 44.81), ("Карачаево", "Карачаево-Черкесия", 43.9, 41.7),
+    ("Адыге", "Адыгея", 44.61, 40.1), ("Ханты-Мансийск", "ХМАО", 61.0, 69.0), ("ХМАО", "ХМАО", 61.0, 69.0),
+    ("Ямал", "ЯНАО", 66.5, 72.0), ("ЯНАО", "ЯНАО", 66.5, 72.0), ("Севастопол", "Севастополь", 44.62, 33.52),
+]
+REG_RE = [(rx, reg, lat, lon) for stem_, reg, lat, lon in REGIONS
+          for rx in [re.compile(r"\b" + re.escape(stem_) + r"\w*\s*(?:област|кра[йяеюи]|округ|республик|АО\b|автоном)?", re.I)]]
 
-  var TYPES = {
-    dtp:{e:"🚗",name:"ДТП",c:"var(--dtp)"}, fire:{e:"🔥",name:"Пожары",c:"var(--fire)"}, wx:{e:"⚡",name:"ЧС и погода",c:"var(--wx)"},
-    crime:{e:"⛔",name:"Правонарушения",c:"var(--crime)"}, tech:{e:"🆘",name:"Аварии и ЧП",c:"var(--tech)"}, mil:{e:"🪖",name:"Атаки и обстрелы",c:"var(--mil)"}
-  };
-  var $ = function(id){return document.getElementById(id);};
-  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
-  function safeUrl(u){return /^https?:\/\//i.test(u||"")?u:"#";}
-  function ago(ts){var m=Math.round((Date.now()/1000-ts)/60); if(m<60)return Math.max(m,1)+" мин назад"; var h=Math.round(m/60); return h<24?h+" ч назад":Math.round(h/24)+" дн. назад";}
-  function when(i){return i.tsNote||new Date(i.ts*1000).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});}
-  function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
 
-  var on = {}; Object.keys(TYPES).forEach(function(k){on[k]=true;});
-  var byId = {}; DATA.forEach(function(i,n){i.id="i"+n; byId[i.id]=i;});
+def stem(name):
+    """Основа слова, чтобы находить склонения: Оренбург -> Оренбург, Москва -> Моск."""
+    return name[:-1] if name[-1] in "аяьйе" else name
 
-  /* ссылки открываются средствами Telegram, если он есть */
-  document.addEventListener("click",function(e){
-    var a=e.target.closest&&e.target.closest("a[data-ext]");
-    if(a&&tg&&tg.openLink){e.preventDefault();tg.openLink(a.href);}
-  });
-  /* если картинка не загрузилась, убираем блок с ней */
-  document.addEventListener("error",function(e){
-    var t=e.target; if(t&&t.tagName==="IMG"&&t.dataset.pic){var box=t.closest(".pic,.thumb"); if(box)box.remove();}
-  },true);
 
-  /* карта */
-  var map = L.map("map",{zoomControl:false,minZoom:2,worldCopyJump:false});
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
-  map.attributionControl.setPosition("bottomleft");
-  map.fitBounds([[42,27],[68,170]]);
-  var cluster = L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:40}).addTo(map);
-  var markers = {};
+GAZ_RE = [(n, re.compile(r"\b(?:в|во|на|под|около|у|из)\s+" + re.escape(stem(n)) + r"\w*", re.I)) for n in GAZETTEER]
+STREET_RE = re.compile(r"(?:ул\.|улиц[аеуы]|проспект\w*|пр-т|шоссе|переул\w+|бульвар\w*)\s+[А-ЯЁ][\w-]+(?:\s+\d+\w?)?")
+CAND_RE = re.compile(r"\b(?:в|во|под)\s+([А-ЯЁ][а-яё-]{3,}(?:\s[А-ЯЁ][а-яё-]+)?)")
 
-  /* фильтры */
-  var chips=$("chips");
-  Object.keys(TYPES).forEach(function(k){
-    var b=document.createElement("button"); b.className="chip"; b.type="button"; b.id="chip-"+k; b.setAttribute("aria-pressed","true"); b.style.setProperty("--c",TYPES[k].c);
-    b.innerHTML='<i></i>'+TYPES[k].e+' '+esc(TYPES[k].name)+' <small id="n-'+k+'"></small>';
-    b.onclick=function(){on[k]=!on[k]; b.setAttribute("aria-pressed",on[k]); render();};
-    chips.appendChild(b);
-  });
-  var regions={}; DATA.forEach(function(i){regions[i.region]=1;});
-  var regionList=Object.keys(regions).sort(function(a,b){return a.localeCompare(b,"ru");});
-  regionList.forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;$("region").appendChild(o);});
-  $("fbtn").onclick=function(){var h=$("fx").hidden; $("fx").hidden=!h; this.setAttribute("aria-expanded",h);};
-  $("period").onchange=function(){render();};
-  $("region").onchange=function(){render(true);};
+_last_geocode = 0.0
 
-  function visible(ignoreTypes){
-    var lim=Date.now()/1000-(+$("period").value)*86400, reg=$("region").value;
-    return DATA.filter(function(i){return i.ts>=lim && (!reg||i.region===reg) && (ignoreTypes||on[i.type]);});
-  }
-  function tag(i){var t=TYPES[i.type]||TYPES.tech; return '<span class="tag" style="--c:'+t.c+'">'+t.e+' '+esc(t.name)+'</span>';}
-  function credit(i){return '<span class="credit">Фото: '+esc(i.source)+'</span>';}
-  function picHtml(i){return i.img&&/^https:\/\//.test(i.img)?'<div class="pic"><img data-pic="1" loading="lazy" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'">'+credit(i)+'</div>':'';}
 
-  function render(zoom){
-    var all=visible(true), counts={}; all.forEach(function(i){counts[i.type]=(counts[i.type]||0)+1;});
-    Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
-    var list=all.filter(function(i){return on[i.type];});
+def db():
+    con = sqlite3.connect(DB_PATH)
+    con.execute("""CREATE TABLE IF NOT EXISTS incidents(
+        url TEXT PRIMARY KEY, title TEXT, summary TEXT, type TEXT, lat REAL, lon REAL,
+        region TEXT, place TEXT, precise INTEGER, ts INTEGER, source TEXT,
+        verified INTEGER DEFAULT 0, created_at INTEGER)""")
+    try:
+        con.execute("ALTER TABLE incidents ADD COLUMN img TEXT")
+    except sqlite3.OperationalError:
+        pass  # столбец уже есть
+    con.execute("CREATE TABLE IF NOT EXISTS geocache(q TEXT PRIMARY KEY, lat REAL, lon REAL, region TEXT)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_ts ON incidents(ts)")
+    return con
 
-    cluster.clearLayers(); markers={};
-    list.forEach(function(i){
-      var t=TYPES[i.type]||TYPES.tech;
-      var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>',iconSize:[30,30],iconAnchor:[15,15]});
-      var m=L.marker([i.lat,i.lon],{icon:icon}); m.on("click",function(){showSheet(i,true);});
-      cluster.addLayer(m); markers[i.id]=m;
-    });
-    if(zoom&&list.length){map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50]});}
 
-    var box=$("feedlist"); box.textContent="";
-    if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
-    list.forEach(function(i){
-      var c=document.createElement("article"); c.className="card";
-      c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
-        '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+', '+esc(i.region)+'</div>'+
-        '<div class="acts"><button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>'+
-        '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
-      box.appendChild(c);
-    });
-    if(sheetId&&!byId[sheetId]) hideSheet();
-    badge();
-  }
-  $("feedlist").addEventListener("click",function(e){
-    var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
-    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
-  });
+def geocode(con, q):
+    """Вернуть (lat, lon, region) или None. Результаты кэшируются."""
+    global _last_geocode
+    row = con.execute("SELECT lat, lon, region FROM geocache WHERE q=?", (q,)).fetchone()
+    if row:
+        return row if row[0] is not None else None
+    result = None
+    try:
+        if YANDEX_KEY:
+            r = requests.get("https://geocode-maps.yandex.ru/1.x/", timeout=15, params={
+                "apikey": YANDEX_KEY, "geocode": q, "format": "json", "results": 1, "lang": "ru_RU"})
+            items = r.json()["response"]["GeoObjectCollection"]["featureMember"]
+            if items:
+                obj = items[0]["GeoObject"]
+                lon, lat = map(float, obj["Point"]["pos"].split())
+                meta = obj["metaDataProperty"]["GeocoderMetaData"]
+                if meta.get("AddressDetails", {}).get("Country", {}).get("CountryNameCode") == "RU":
+                    region = meta["AddressDetails"]["Country"].get("AdministrativeArea", {}).get("AdministrativeAreaName", "")
+                    result = (lat, lon, region)
+        else:
+            wait = 1.1 - (time.time() - _last_geocode)  # правило Nominatim: не чаще 1 запроса в секунду
+            if wait > 0:
+                time.sleep(wait)
+            _last_geocode = time.time()
+            r = requests.get("https://nominatim.openstreetmap.org/search", timeout=15,
+                             headers={"User-Agent": USER_AGENT},
+                             params={"q": q, "format": "jsonv2", "countrycodes": "ru", "limit": 1,
+                                     "accept-language": "ru", "addressdetails": 1})
+            data = r.json()
+            if data:
+                a = data[0].get("address", {})
+                result = (float(data[0]["lat"]), float(data[0]["lon"]), a.get("state", ""))
+    except Exception as e:  # сеть и разбор ответа не должны ронять весь сбор
+        print("  геокодер:", e, file=sys.stderr)
+        return None
+    con.execute("INSERT OR REPLACE INTO geocache VALUES(?,?,?,?)",
+                (q, *(result if result else (None, None, None))))
+    con.commit()
+    return result
 
-  /* карточка на карте */
-  var sheetId=null;
-  function showSheet(i,pan){
-    sheetId=i.id; var s=$("sheet");
-    s.innerHTML=(i.img&&/^https:\/\//.test(i.img)?'<div class="thumb"><img data-pic="1" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'"></div>':'')+
-      '<div class="txt">'+tag(i)+'<h3>'+esc(i.title)+'</h3><div class="place">'+esc(i.place)+' · '+esc(when(i))+'</div>'+
-      '<div class="acts"><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
-      '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
-    s.hidden=false; $("sx").onclick=hideSheet;
-    if(pan){var p=map.latLngToContainerPoint([i.lat,i.lon]), h=map.getSize().y; if(p.y>h-210)map.panBy([0,p.y-(h-250)]);}
-  }
-  function hideSheet(){sheetId=null;$("sheet").hidden=true;}
-  map.on("click",hideSheet);
 
-  /* уведомления */
-  var sub={region:store("nm_region")||"",types:{}};
-  try{sub.types=JSON.parse(store("nm_types")||"{}");}catch(e){sub.types={};}
-  Object.keys(TYPES).forEach(function(k){if(sub.types[k]===undefined)sub.types[k]=true;});
-  var lastSeen=+store("nm_seen")||0;
-  function matches(i){return (!sub.region||i.region===sub.region)&&sub.types[i.type];}
-  function fresh(){var since=lastSeen||Date.now()/1000-86400; return DATA.filter(function(i){return i.ts>since&&matches(i);});}
-  function badge(){var n=tab==="notify"?0:fresh().length, b=$("badge"); b.hidden=!n; b.textContent=n>9?"9+":n;}
+def classify(text):
+    if STOP.search(text) or SENSITIVE.search(text):
+        return None
+    for t, pattern in RULES:
+        if re.search(pattern, text, re.I):
+            return t
+    return None
 
-  function renderNotify(){
-    var box=$("notifyscroll"), items=fresh();
-    box.innerHTML=
-      '<div class="panel"><h2>Уведомления о новых происшествиях</h2>'+
-      '<p>Выберите регион и типы событий, затем подпишитесь в чате с ботом: он будет присылать новые происшествия сообщениями.</p>'+
-      '<div class="lab">Регион</div><select id="subRegion" aria-label="Регион для уведомлений"><option value="">Вся Россия</option>'+
-      regionList.map(function(r){return '<option value="'+esc(r)+'"'+(r===sub.region?" selected":"")+'>'+esc(r)+'</option>';}).join("")+'</select>'+
-      '<div class="lab">Что интересует</div><div class="chips" id="subTypes" style="flex-wrap:wrap;overflow:visible"></div>'+
-      '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button></div>'+
-      '<div class="panel"><h2>Новое с вашего прошлого визита</h2><div id="newlist"></div>'+
-      '<p style="font-size:12px">Это демонстрационная версия: данные добавляются вручную. С подключённым сервером список пополняется сам.</p></div>';
-    var st=$("subTypes");
-    Object.keys(TYPES).forEach(function(k){
-      var b=document.createElement("button"); b.className="chip"; b.type="button"; b.style.setProperty("--c",TYPES[k].c); b.setAttribute("aria-pressed",!!sub.types[k]);
-      b.innerHTML='<i></i>'+TYPES[k].e+' '+esc(TYPES[k].name);
-      b.onclick=function(){sub.types[k]=!sub.types[k]; b.setAttribute("aria-pressed",!!sub.types[k]); store("nm_types",JSON.stringify(sub.types)); fillNew();};
-      st.appendChild(b);
-    });
-    $("subRegion").onchange=function(){sub.region=this.value; store("nm_region",sub.region); fillNew();};
-    $("subgo").onclick=function(){
-      var link="https://t.me/nrmpnews";
-      if(tg&&tg.openTelegramLink)tg.openTelegramLink(link); else window.open(link,"_blank");
-    };
-    fillNew(items);
-  }
-  function fillNew(items){
-    items=items||fresh(); var box=$("newlist"); if(!box)return;
-    if(!items.length){box.innerHTML='<p>Новых происшествий нет.</p>';return;}
-    box.innerHTML=items.slice(0,30).map(function(i){var t=TYPES[i.type]||TYPES.tech;
-      return '<button class="nrow" type="button" data-show="'+i.id+'" style="--c:'+t.c+'"><span class="d"></span><span><b>'+esc(i.title)+'</b><small>'+esc(i.place)+' · '+esc(ago(i.ts))+'</small></span></button>';}).join("");
-  }
-  $("notifyscroll").addEventListener("click",function(e){
-    var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
-    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
-  });
 
-  /* вкладки */
-  var tab="map";
-  function setTab(t){
-    tab=t;
-    document.querySelectorAll(".tab").forEach(function(b){b.setAttribute("aria-selected",b.dataset.tab===t);});
-    ["map","feed","notify"].forEach(function(n){$("view-"+n).classList.toggle("active",n===t);});
-    var f=$("filters");
-    if(t==="map")$("view-map").appendChild(f);
-    else if(t==="feed"){var sc=$("feedscroll"); sc.insertBefore(f,sc.firstChild);}
-    f.style.display=t==="notify"?"none":"";
-    if(t==="map")setTimeout(function(){map.invalidateSize();},30);
-    if(t==="notify"){renderNotify(); lastSeen=Math.floor(Date.now()/1000); store("nm_seen",String(lastSeen));}
-    badge();
-  }
-  document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){setTab(b.dataset.tab);};});
-  window.addEventListener("resize",function(){map.invalidateSize();});
+def locate(con, text):
+    """Вернуть (lat, lon, region, place, precise) или None."""
+    street = STREET_RE.search(text)
+    city = next((n for n, rx in GAZ_RE if rx.search(text)), None)
+    if city and street:
+        hit = geocode(con, f"{street.group(0)}, {city}")
+        if hit:
+            return (*hit[:2], hit[2] or GAZETTEER[city][2], f"{city}, {street.group(0)}", 1)
+    if city:
+        lat, lon, region = GAZETTEER[city]
+        return lat, lon, region, city, 0
+    for rx, reg, lat, lon in REG_RE:
+        # регион засчитываем, только если рядом слово "область/край/республика" или предлог места
+        if re.search(r"\b(?:в|во|на|по|над|из|юге|севере|западе|востоке)\s+" + rx.pattern, text, re.I):
+            return lat, lon, reg, reg, 0
+    for cand in CAND_RE.findall(text)[:2]:
+        hit = geocode(con, cand)
+        if hit:
+            return (*hit[:2], hit[2], cand, 0)
+    return None
 
-  $("view-map").appendChild($("filters"));
-  render(); setTab("map");
-})();
-</script>
-</body>
-</html>
+
+def clean(s):
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip()
+
+
+def run_once():
+    con = db()
+    added = 0
+    for source, feed_url in FEEDS:
+        feed = feedparser.parse(feed_url, agent=USER_AGENT)
+        print(f"{source}: {len(feed.entries)} записей")
+        for e in feed.entries:
+            url = e.get("link")
+            if not url or con.execute("SELECT 1 FROM incidents WHERE url=?", (url,)).fetchone():
+                continue
+            published = calendar.timegm(e.published_parsed) if e.get("published_parsed") else int(time.time())
+            if published < time.time() - MAX_AGE_DAYS * 86400:
+                continue
+            title, summary = clean(e.get("title")), clean(e.get("summary"))
+            text = f"{title}. {summary}"
+            kind = classify(text)
+            if not kind:
+                continue
+            where = locate(con, text)
+            if not where:
+                print("  нет места:", title[:70])
+                continue
+            lat, lon, region, place, precise = where
+            ts = calendar.timegm(e.published_parsed) if e.get("published_parsed") else int(time.time())
+            # Храним заголовок, ссылку и короткую выдержку. Полный текст статей не копируем.
+            img = None
+            for m in (e.get("media_content") or []) + (e.get("media_thumbnail") or []) + (e.get("enclosures") or []):
+                u = m.get("url") or m.get("href") or ""
+                if u.startswith("https://"):
+                    img = u
+                    break
+            con.execute("INSERT INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,img) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
+                        (url, title, summary[:240], kind, lat, lon, region, place, precise, ts, source, int(time.time()), img))
+            added += 1
+        con.commit()
+    print(f"Добавлено: {added}")
+
+
+if __name__ == "__main__":
+    if "--loop" in sys.argv:
+        pause = int(sys.argv[sys.argv.index("--loop") + 1])
+        while True:
+            run_once()
+            time.sleep(pause)
+    else:
+        run_once()
