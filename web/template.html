@@ -235,22 +235,13 @@
     map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
     map.fitBounds([[42,27],[68,170]],{animate:false});
 
-    /* плитки: CARTO (светлая и тёмная версии), при сбое запасной вариант OpenStreetMap */
-    var tiles=null, tilesKey="", failed=0, loaded=0, useOsm=false;
-    function tileSpec(){
-      if(useOsm)return {key:"osm",url:"https://tile.openstreetmap.org/{z}/{x}/{y}.png",o:{}};
-      if(isDark())return {key:"dark",url:"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
-      return {key:"light",url:"https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
-    }
+    /* плитки: OpenStreetMap (бесплатно, без ключа); тёмная тема - CSS-фильтром на слое плиток */
+    var tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1}).addTo(map);
     function setTiles(){
-      var sp=tileSpec(); if(sp.key===tilesKey)return; tilesKey=sp.key;
-      if(tiles)map.removeLayer(tiles);
-      var opt={maxZoom:18,attribution:"© OpenStreetMap" + (useOsm?"":", © CARTO"),updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1};
-      for(var k in sp.o)opt[k]=sp.o[k];
-      tiles=L.tileLayer(sp.url,opt).addTo(map);
-      tiles.on("tileload",function(){loaded++;});
-      tiles.on("tileerror",function(){failed++; if(!useOsm&&!loaded&&failed>=6){useOsm=true; setTiles();}});
+      var el=tiles.getContainer&&tiles.getContainer();
+      if(el)el.style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.7)":"";
     }
+    tiles.on("add",setTiles);
     setTiles();
 
     var cluster=L.markerClusterGroup({
