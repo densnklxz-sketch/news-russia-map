@@ -3,8 +3,8 @@
 
 Запускается после collector.py (в GitHub Actions). За один запуск публикует не больше MAX_POSTS записей,
 между постами выдерживает MIN_GAP_MIN минут и пишет только в дневное время по Москве.
-Формат поста: заголовок-ссылка на источник, строка «тип · место» и ссылка на карту.
-Текст статей не копируется: в посте только заголовок-ссылка и данные карты.
+Формат поста: заголовок-ссылка на источник, короткая выдержка из анонса (до ~380 знаков), строка «тип · место», ссылка на карту.
+Полный текст статей не копируется.
 
 Переменные окружения:
   BOT_TOKEN      токен бота (секрет, в логи не выводится)
@@ -83,6 +83,22 @@ def similar(a, b):
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.55
 
 
+def excerpt(summary, title, limit=380):
+    """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
+    t = re.sub(r"\s+", " ", summary or "").strip()
+    # убираем «МОСКВА, 16 окт — РИА Новости.» и «МОСКВА, 16 октября. /ТАСС/.» в начале
+    t = re.sub(r"^[А-ЯЁ][А-ЯЁ\- ]{2,30},\s*\d{1,2}\s+[а-яё]+\.?\s*(?:[—–-]\s*[^.]{1,40}\.|/[^/]{1,20}/\.)?\s*", "", t)
+    if len(t) < 40 or similar(t, title) and len(words(t) - words(title)) < 4:
+        return ""
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    ends = [m.end() for m in re.finditer(r"[.!?»)](?=\s|$)", cut)]
+    if ends and ends[-1] > 120:
+        return cut[:ends[-1]].strip()
+    return cut.rsplit(" ", 1)[0].rstrip(",;:—– ") + "…"
+
+
 def in_window():
     try:
         lo, hi = (int(x) for x in HOURS.split("-"))
@@ -124,11 +140,11 @@ def main():
     recent = [r[0] for r in con.execute(
         "SELECT title FROM incidents WHERE posted_at > ?", (now - 86400,))]
     cands = con.execute(
-        "SELECT url, title, type, place, region FROM incidents "
+        "SELECT url, title, type, place, region, summary FROM incidents "
         "WHERE posted_at IS NULL AND ts >= ? AND title != '' AND place != '' ORDER BY ts DESC LIMIT 60",
         (now - FRESH,)).fetchall()
     sent = 0
-    for url, title, typ, place, region in cands:
+    for url, title, typ, place, region, summary in cands:
         if sent >= MAX_POSTS:
             break
         if any(similar(title, t) for t in recent):
@@ -136,8 +152,10 @@ def main():
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
         where = place if place == region or not region else f"{place}, {region}"
+        body = excerpt(summary, title)
         text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
-                f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
+                + (f"{html.escape(body)}\n\n" if body else "")
+                + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
         res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML"})
         if res is None:
             break  # не повторяем в этом запуске, чтобы не засыпать лог
