@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Карта происшествий России</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
   :root{
     --bg:#EDF1F4; --panel:#FFFFFF; --glass:rgba(255,255,255,.93); --line:#C9D4DD; --fg:#14202B; --muted:#5A6C7C;
@@ -33,7 +30,7 @@
   .views{flex:1;position:relative;min-height:0}
   .view{position:absolute;inset:0;display:none}
   .view.active{display:block}
-  #map{position:absolute;inset:0;background:var(--bg)}
+  #map{position:absolute;inset:0;background:var(--bg);z-index:0;isolation:isolate}  /* слои Яндекс Карт остаются внутри и не закрывают фильтры */
 
   /* нижнее меню */
   .tabs{display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
@@ -56,7 +53,10 @@
   .chip small{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
   .chip[aria-pressed="false"]{background:transparent;color:var(--muted)}
   .chip[aria-pressed="false"] i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--c)}
-  .fx{display:flex;gap:6px}
+  .fx{display:flex;gap:6px;flex-wrap:wrap}
+  #q{flex:1 1 100%;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:14px}
+  .more{display:block;width:100%;max-width:640px;margin:0 0 12px}
+  #subnote{font-size:12px;color:var(--accent);min-height:0}
   select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
   #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 
@@ -100,8 +100,7 @@
 
   .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
   .pin.approx{border-style:dashed}
-  .leaflet-container{font:inherit;background:var(--bg)}
-  .leaflet-control-attribution{font-size:10px}
+  .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
 </style>
 </head>
 <body>
@@ -121,6 +120,7 @@
         <div class="chips" id="chips"></div>
       </div>
       <div class="fx" id="fx" hidden>
+        <input id="q" type="search" placeholder="Поиск: город, улица, слово" aria-label="Поиск" autocomplete="off">
         <select id="period" aria-label="Период">
           <option value="1">За 24 часа</option>
           <option value="3">За 3 дня</option>
@@ -146,12 +146,11 @@
 </div>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 (function(){
   var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); }
+  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
+    if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
 
   var BOT = "NewsRussiaMapBot";
   var DATA = __DATA__;
@@ -162,6 +161,11 @@
     crime:{e:"⛔",name:"Правонарушения",c:"var(--crime)"}, tech:{e:"🆘",name:"Аварии и ЧП",c:"var(--tech)"}, mil:{e:"🪖",name:"Атаки и обстрелы",c:"var(--mil)"}
   };
   var $ = function(id){return document.getElementById(id);};
+  function crc32(str){
+    var b=new TextEncoder().encode(str), c=-1>>>0;
+    for(var i=0;i<b.length;i++){c=(c^b[i])>>>0; for(var k=0;k<8;k++){c=(c>>>1)^(0xEDB88320&-(c&1)); c=c>>>0;}}
+    return ((c^0xFFFFFFFF)>>>0).toString(16);
+  }
   function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
   function safeUrl(u){return /^https?:\/\//i.test(u||"")?u:"#";}
   function ago(ts){var m=Math.round((Date.now()/1000-ts)/60); if(m<60)return Math.max(m,1)+" мин назад"; var h=Math.round(m/60); return h<24?h+" ч назад":Math.round(h/24)+" дн. назад";}
@@ -182,31 +186,76 @@
   },true);
 
   /* карта */
-  var map = L.map("map",{zoomControl:false,minZoom:2,worldCopyJump:false});
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
-  map.attributionControl.setPosition("bottomleft");
-  map.fitBounds([[42,27],[68,170]]);
-  var cluster = L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:40}).addTo(map);
-  var markers = {};
+  /* Яндекс Карты (JS API 2.1). Ключ подставляет build_site.py из переменной YMAPS_KEY */
+  var YMAPS_KEY = "__YMAPS_KEY__";
+  var map = null, cluster = null, pinLayout = null;
+  function noMap(msg){var d=document.createElement("div"); d.className="nomap"; d.textContent=msg; $("map").appendChild(d);}
+  function initMap(){
+    map = new ymaps.Map("map",{center:[62,95],zoom:3,controls:[]},{minZoom:2,suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
+    map.setBounds([[42,27],[68,170]],{checkZoomRange:true});
+    pinLayout = ymaps.templateLayoutFactory.createClass('{{ properties.pin|raw }}');
+    cluster = new ymaps.Clusterer({preset:"islands#invertedDarkBlueClusterIcons",gridSize:56,groupByCoordinates:false,clusterDisableClickZoom:false,hasBalloon:false});
+    map.geoObjects.add(cluster);
+    map.events.add("click",hideSheet);
+    applyMapTheme();
+    render(true);
+  }
+  function loadMap(){
+    if(!YMAPS_KEY||YMAPS_KEY.indexOf("__")===0){noMap("Карта не подключена: не указан ключ Яндекс Карт. Лента и уведомления работают.");return;}
+    var s=document.createElement("script");
+    s.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YMAPS_KEY)+"&lang=ru_RU";
+    s.onload=function(){ymaps.ready(initMap);};
+    s.onerror=function(){noMap("Не удалось загрузить Яндекс Карты. Лента и уведомления работают.");};
+    document.head.appendChild(s);
+  }
+  function isDark(){
+    var t=document.documentElement.getAttribute("data-theme");
+    if(t)return t==="dark";
+    return !!(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function applyMapTheme(){
+    if(!map)return;
+    try{
+      var el=map.panes.get("ground").getElement();  /* слой с плитками карты */
+      el.style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.82) contrast(.92)":"";
+    }catch(e){}
+  }
+  window.__applyMapTheme=applyMapTheme;
+  function goTo(i){
+    if(!map)return;
+    map.setCenter([i.lat,i.lon],Math.max(map.getZoom(),9),{duration:300});
+  }
+  function fitTo(list){
+    if(!map||!list.length)return;
+    var la=list.map(function(i){return i.lat;}), lo=list.map(function(i){return i.lon;});
+    var b=[[Math.min.apply(null,la),Math.min.apply(null,lo)],[Math.max.apply(null,la),Math.max.apply(null,lo)]];
+    map.setBounds(b,{checkZoomRange:true,zoomMargin:50}).then(function(){if(map.getZoom()>9)map.setZoom(9);});
+  }
 
   /* фильтры */
   var chips=$("chips");
   Object.keys(TYPES).forEach(function(k){
     var b=document.createElement("button"); b.className="chip"; b.type="button"; b.id="chip-"+k; b.setAttribute("aria-pressed","true"); b.style.setProperty("--c",TYPES[k].c);
     b.innerHTML='<i></i>'+TYPES[k].e+' '+esc(TYPES[k].name)+' <small id="n-'+k+'"></small>';
-    b.onclick=function(){on[k]=!on[k]; b.setAttribute("aria-pressed",on[k]); render();};
+    b.onclick=function(){on[k]=!on[k]; b.setAttribute("aria-pressed",on[k]); feedLimit=60; render();};
     chips.appendChild(b);
   });
   var regions={}; DATA.forEach(function(i){regions[i.region]=1;});
   var regionList=Object.keys(regions).sort(function(a,b){return a.localeCompare(b,"ru");});
   regionList.forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;$("region").appendChild(o);});
   $("fbtn").onclick=function(){var h=$("fx").hidden; $("fx").hidden=!h; this.setAttribute("aria-expanded",h);};
-  $("period").onchange=function(){render();};
-  $("region").onchange=function(){render(true);};
+  var feedLimit=60;
+  $("period").onchange=function(){feedLimit=60;render();};
+  $("region").onchange=function(){feedLimit=60;render(true);};
+  var qTimer=null;
+  $("q").oninput=function(){clearTimeout(qTimer);qTimer=setTimeout(function(){feedLimit=60;render();},180);};
 
   function visible(ignoreTypes){
-    var lim=Date.now()/1000-(+$("period").value)*86400, reg=$("region").value;
-    return DATA.filter(function(i){return i.ts>=lim && (!reg||i.region===reg) && (ignoreTypes||on[i.type]);});
+    var lim=Date.now()/1000-(+$("period").value)*86400, reg=$("region").value, q=($("q").value||"").trim().toLowerCase();
+    return DATA.filter(function(i){
+      if(i.ts<lim||(reg&&i.region!==reg)||!(ignoreTypes||on[i.type]))return false;
+      return !q||((i.title||"")+" "+(i.place||"")+" "+(i.region||"")+" "+(i.summary||"")).toLowerCase().indexOf(q)>=0;
+    });
   }
   function tag(i){var t=TYPES[i.type]||TYPES.tech; return '<span class="tag" style="--c:'+t.c+'">'+t.e+' '+esc(t.name)+'</span>';}
   function credit(i){return '<span class="credit">Фото: '+esc(i.source)+'</span>';}
@@ -217,18 +266,23 @@
     Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
     var list=all.filter(function(i){return on[i.type];});
 
-    cluster.clearLayers(); markers={};
-    list.forEach(function(i){
-      var t=TYPES[i.type]||TYPES.tech;
-      var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>',iconSize:[30,30],iconAnchor:[15,15]});
-      var m=L.marker([i.lat,i.lon],{icon:icon}); m.on("click",function(){showSheet(i,true);});
-      cluster.addLayer(m); markers[i.id]=m;
-    });
-    if(zoom&&list.length){map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50]});}
+    if(map){
+      cluster.removeAll();
+      var pms=list.map(function(i){
+        var t=TYPES[i.type]||TYPES.tech;
+        var pm=new ymaps.Placemark([i.lat,i.lon],
+          {pin:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>'},
+          {iconLayout:pinLayout,iconOffset:[-15,-15],iconShape:{type:"Circle",coordinates:[15,15],radius:15},hasBalloon:false,hasHint:false});
+        pm.events.add("click",function(e){e.stopPropagation();showSheet(i,true);});
+        return pm;
+      });
+      cluster.add(pms);
+      if(zoom)fitTo(list);
+    }
 
     var box=$("feedlist"); box.textContent="";
     if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
-    list.forEach(function(i){
+    list.slice(0,feedLimit).forEach(function(i){
       var c=document.createElement("article"); c.className="card";
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
         '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+', '+esc(i.region)+'</div>'+
@@ -236,13 +290,18 @@
         '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
     });
+    if(list.length>feedLimit){
+      var mb=document.createElement("button"); mb.type="button"; mb.className="btn more"; mb.textContent="Показать ещё ("+(list.length-feedLimit)+")";
+      mb.onclick=function(){feedLimit+=60; var y=$("feedscroll").scrollTop; render(); $("feedscroll").scrollTop=y;};
+      box.appendChild(mb);
+    }
     if(sheetId&&!byId[sheetId]) hideSheet();
     badge();
   }
   $("feedlist").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
     var i=byId[b.getAttribute("data-show")]; setTab("map");
-    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
+    setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
   /* карточка на карте */
@@ -254,10 +313,16 @@
       '<div class="acts"><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
       '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
     s.hidden=false; $("sx").onclick=hideSheet;
-    if(pan){var p=map.latLngToContainerPoint([i.lat,i.lon]), h=map.getSize().y; if(p.y>h-210)map.panBy([0,p.y-(h-250)]);}
+    if(pan&&map){
+      try{
+        var z=map.getZoom(), gc=map.getGlobalPixelCenter(), h=map.container.getSize()[1];
+        var pg=map.options.get("projection").toGlobalPixels([i.lat,i.lon],z);
+        var y=pg[1]-gc[1]+h/2;
+        if(y>h-210)map.setGlobalPixelCenter([gc[0],gc[1]+(y-(h-250))],z,{duration:200});
+      }catch(e){}
+    }
   }
   function hideSheet(){sheetId=null;$("sheet").hidden=true;}
-  map.on("click",hideSheet);
 
   /* уведомления */
   var sub={region:store("nm_region")||"",types:{}};
@@ -276,9 +341,10 @@
       '<div class="lab">Регион</div><select id="subRegion" aria-label="Регион для уведомлений"><option value="">Вся Россия</option>'+
       regionList.map(function(r){return '<option value="'+esc(r)+'"'+(r===sub.region?" selected":"")+'>'+esc(r)+'</option>';}).join("")+'</select>'+
       '<div class="lab">Что интересует</div><div class="chips" id="subTypes" style="flex-wrap:wrap;overflow:visible"></div>'+
-      '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button></div>'+
+      '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button><div id="subnote" role="status"></div>'+
+      '<p style="font-size:12px">Нажмите «Start» в чате с ботом. Подтверждение придёт в течение 10–15 минут, дальше бот присылает до 5 новых происшествий за раз. Отписаться: команда /stop в чате с ботом. Канал с новостями: <a data-ext="1" target="_blank" rel="noopener noreferrer" href="https://t.me/nrmpnews" style="color:var(--accent)">t.me/nrmpnews</a></p></div>'+
       '<div class="panel"><h2>Новое с вашего прошлого визита</h2><div id="newlist"></div>'+
-      '<p style="font-size:12px">Это демонстрационная версия: данные добавляются вручную. С подключённым сервером список пополняется сам.</p></div>';
+      '</div>';
     var st=$("subTypes");
     Object.keys(TYPES).forEach(function(k){
       var b=document.createElement("button"); b.className="chip"; b.type="button"; b.style.setProperty("--c",TYPES[k].c); b.setAttribute("aria-pressed",!!sub.types[k]);
@@ -288,7 +354,10 @@
     });
     $("subRegion").onchange=function(){sub.region=this.value; store("nm_region",sub.region); fillNew();};
     $("subgo").onclick=function(){
-      var link="https://t.me/nrmpnews";
+      var mask=0; Object.keys(TYPES).forEach(function(k,n){if(sub.types[k])mask|=1<<n;});
+      if(!mask){$("subnote").textContent="Выберите хотя бы один тип событий.";return;}
+      $("subnote").textContent="";
+      var link="https://t.me/"+BOT+"?start=n"+mask+"_"+(sub.region?crc32(sub.region):"0");
       if(tg&&tg.openTelegramLink)tg.openTelegramLink(link); else window.open(link,"_blank");
     };
     fillNew(items);
@@ -302,7 +371,7 @@
   $("notifyscroll").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
     var i=byId[b.getAttribute("data-show")]; setTab("map");
-    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
+    setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
   /* вкладки */
@@ -315,15 +384,16 @@
     if(t==="map")$("view-map").appendChild(f);
     else if(t==="feed"){var sc=$("feedscroll"); sc.insertBefore(f,sc.firstChild);}
     f.style.display=t==="notify"?"none":"";
-    if(t==="map")setTimeout(function(){map.invalidateSize();},30);
+    if(t==="map")setTimeout(function(){if(map)map.container.fitToViewport();},30);
     if(t==="notify"){renderNotify(); lastSeen=Math.floor(Date.now()/1000); store("nm_seen",String(lastSeen));}
     badge();
   }
   document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){setTab(b.dataset.tab);};});
-  window.addEventListener("resize",function(){map.invalidateSize();});
+  window.addEventListener("resize",function(){if(map)map.container.fitToViewport();});
 
   $("view-map").appendChild($("filters"));
   render(); setTab("map");
+  loadMap();
 })();
 </script>
 </body>
