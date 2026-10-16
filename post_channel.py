@@ -83,7 +83,7 @@ def similar(a, b):
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.55
 
 
-def excerpt(summary, title, limit=380):
+def excerpt(summary, title, limit=700):
     """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
     t = re.sub(r"\s+", " ", summary or "").strip()
     # убираем «МОСКВА, 16 окт — РИА Новости.» и «МОСКВА, 16 октября. /ТАСС/.» в начале
@@ -97,6 +97,64 @@ def excerpt(summary, title, limit=380):
     if ends and ends[-1] > 120:
         return cut[:ends[-1]].strip()
     return cut.rsplit(" ", 1)[0].rstrip(",;:—– ") + "…"
+
+
+MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+def old_date(title):
+    """Заголовок про событие с датой, которая не сегодня и не вчера («атака 9 сентября»): считаем устаревшим."""
+    msk = time.gmtime(time.time() + 3 * 3600)
+    ok = {(msk.tm_mday, msk.tm_mon)}
+    y = time.gmtime(time.time() + 3 * 3600 - 86400)
+    ok.add((y.tm_mday, y.tm_mon))
+    for d, m in re.findall(r"\b(\d{1,2})\s+(" + "|".join(MONTHS) + r")\b", title.lower()):
+        if (int(d), MONTHS.index(m) + 1) not in ok:
+            return True
+    return False
+
+
+def where_text(place, region):
+    """«Петербург, Санкт-Петербург» -> «Санкт-Петербург»: не повторяем место, если оно уже есть в названии региона."""
+    if not region or place == region:
+        return place
+    if re.search(r"област|край|республик|округ", region.lower()):
+        return f"{place}, {region}"
+    a, b = place.lower().replace("ё", "е"), region.lower().replace("ё", "е")
+    stem = a[:max(4, len(a) - 2)]
+    if stem in b or b[:max(4, len(b) - 3)] in a:
+        return region
+    return f"{place}, {region}"
+
+
+def fetch_lead(url):
+    """Если анонс в ленте короткий, берём описание и первые абзацы со страницы новости (несколько предложений, не вся статья)."""
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (compatible; NRMPBot/1.0)"})
+        r.encoding = r.apparent_encoding if not r.encoding or r.encoding.lower() == "iso-8859-1" else r.encoding
+        page = r.text[:400000]
+    except Exception:
+        return ""
+    parts = []
+    for pat in (r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:description["\']',
+                r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)'):
+        m = re.search(pat, page, re.I)
+        if m:
+            parts.append(html.unescape(m.group(1)))
+            break
+    for m in re.finditer(r"<p[^>]*>(.*?)</p>", page, re.S | re.I):
+        t = html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))
+        t = re.sub(r"\s+", " ", t).strip()
+        if len(t) >= 80 and not re.search(r"cookie|подпиш|реклам|©", t, re.I):
+            parts.append(t)
+        if len(" ".join(parts)) > 900:
+            break
+    out = []
+    for t in parts:
+        if not any(similar(t, o) or t in o or o in t for o in out):
+            out.append(t)
+    return " ".join(out)
 
 
 def in_window():
@@ -147,12 +205,19 @@ def main():
     for url, title, typ, place, region, summary in cands:
         if sent >= MAX_POSTS:
             break
+        if old_date(title):
+            con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # старая новость в свежей ленте
+            continue
         if any(similar(title, t) for t in recent):
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # дубль чужой новости: не публикуем
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
-        where = place if place == region or not region else f"{place}, {region}"
+        where = where_text(place, region)
         body = excerpt(summary, title)
+        if len(body) < 250:
+            more = excerpt(fetch_lead(url), title)
+            if len(more) > len(body):
+                body = more
         text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
                 + (f"{html.escape(body)}\n\n" if body else "")
                 + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")

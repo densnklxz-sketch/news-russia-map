@@ -306,7 +306,7 @@ def run_once():
                     break
             con.execute("INSERT INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,img) "
                         "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
-                        (url, title, summary[:600], kind, lat, lon, region, place, precise, ts, source, int(time.time()), img))
+                        (url, title, summary[:1200], kind, lat, lon, region, place, precise, ts, source, int(time.time()), img))
             added += 1
         con.commit()
     print(f"Добавлено: {added}")
