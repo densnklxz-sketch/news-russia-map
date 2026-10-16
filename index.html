@@ -288,7 +288,7 @@
     });
     $("subRegion").onchange=function(){sub.region=this.value; store("nm_region",sub.region); fillNew();};
     $("subgo").onclick=function(){
-      var link="https://t.me/"+BOT+"?start=subscribe";
+      var link="https://t.me/nrmpnews";
       if(tg&&tg.openTelegramLink)tg.openTelegramLink(link); else window.open(link,"_blank");
     };
     fillNew(items);
