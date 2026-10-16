@@ -2,8 +2,13 @@ name: Обновление карты
 
 on:
   schedule:
-    - cron: "*/20 * * * *"
-  workflow_dispatch:
+    - cron: "*/20 * * * *"     # каждые 20 минут (GitHub может задерживать запуск на несколько минут)
+  workflow_dispatch:           # кнопка «Run workflow» для ручного запуска
+    inputs:
+      check_only:
+        description: "Только проверить бота и права в канале, ничего не публиковать"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,6 +34,7 @@ jobs:
 
       - run: pip install feedparser==6.0.11 requests==2.32.3
 
+      # База записей хранится в кэше GitHub между запусками
       - name: Восстановить базу
         uses: actions/cache/restore@v4
         with:
@@ -46,6 +52,18 @@ jobs:
           USER_AGENT: "incident-map-collector/1.0 (https://github.com/${{ github.repository }})"
         run: python collector.py
 
+      - name: Публикация в канал
+        continue-on-error: true
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL: "@nrmpnews"
+          DB_PATH: incidents.db
+          MAX_POSTS: "1"
+          MIN_GAP_MIN: "25"
+          POST_HOURS: "8-23"
+          CHECK_ONLY: ${{ inputs.check_only && '1' || '' }}
+        run: python post_channel.py
+
       - name: Сохранить базу
         uses: actions/cache/save@v4
         with:
@@ -56,6 +74,7 @@ jobs:
         env:
           DB_PATH: incidents.db
           SITE_OUT: site/index.html
+          YMAPS_KEY: ${{ vars.YMAPS_KEY }}
         run: python build_site.py
 
       - uses: actions/upload-pages-artifact@v3
@@ -64,3 +83,4 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
+
