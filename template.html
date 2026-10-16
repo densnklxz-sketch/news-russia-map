@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <title>Карта происшествий России</title>
 <style>
   :root{
@@ -31,7 +33,7 @@
   .views{flex:1;position:relative;min-height:0}
   .view{position:absolute;inset:0;display:none}
   .view.active{display:block}
-  #map{position:absolute;inset:0;background:var(--bg);z-index:0;isolation:isolate}  /* слои Яндекс Карт остаются внутри и не закрывают фильтры */
+  #map{position:absolute;inset:0;background:var(--bg);z-index:0;isolation:isolate}  /* слои карты остаются внутри и не закрывают фильтры */
 
   /* нижнее меню */
   .tabs{display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
@@ -101,8 +103,9 @@
 
   .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
   .pin.approx{border-style:dashed}
-  .pinwrap{position:absolute;transform:translate(-50%,-50%);cursor:pointer}
-  .clus{min-width:34px;height:34px;padding:0 8px;border-radius:17px;background:var(--accent);color:var(--on-accent);border:2px solid #fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .clus{width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--on-accent);border:2px solid #fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .leaflet-container{font:inherit;background:var(--bg);-webkit-tap-highlight-color:transparent}
+  .leaflet-control-attribution{font-size:10px}
   .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
 </style>
 </head>
@@ -150,6 +153,8 @@
 </div>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 (function(){
   var tg = window.Telegram && window.Telegram.WebApp;
@@ -190,10 +195,8 @@
   },true);
 
   /* карта */
-  /* Яндекс Карты (JS API 2.1). Ключ подставляет build_site.py из переменной YMAPS_KEY */
-  var YMAPS_KEY = "__YMAPS_KEY__";
   var BUILD = "__BUILD__";  /* время сборки страницы: видно во вкладке «Уведомления», помогает понять, не показывает ли Telegram старую версию */
-  var eng = null, lastList = [], v2tried = false;   /* eng: движок карты (API 3.0 или запасной 2.1) */
+  var eng = null, lastList = [];   /* eng: движок карты (Leaflet: лёгкая растровая карта) */
   var darkMapPref = store("nm_darkmap")!=="0";
   function noMap(msg){var d=document.createElement("div"); d.className="nomap"; d.textContent=msg+" (сборка: "+BUILD+")"; $("map").appendChild(d);}
   function isDark(){
@@ -205,111 +208,65 @@
   function applyMapTheme(){ if(eng){try{eng.theme();}catch(e){}} }
   window.__applyMapTheme=applyMapTheme;
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
-  function loadScript(src,cb){
-    var s=document.createElement("script"); s.src=src; s.async=true;
-    s.onload=function(){cb(true);}; s.onerror=function(){cb(false);};
-    document.head.appendChild(s);
-  }
-  function pinEl(i){
-    var t=TYPES[i.type]||TYPES.tech, d=document.createElement("div");
-    d.className="pinwrap";
-    d.innerHTML='<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>';
-    return d;
-  }
-  function clusEl(n){var d=document.createElement("div"); d.className="pinwrap"; d.innerHTML='<div class="clus">'+n+'</div>'; return d;}
 
-  /* ---- движок 1: Яндекс Карты JS API 3.0 (векторная, быстрее) ---- */
-  function makeV3(){
-    var m=ymaps3, M=null, clusterer=null, pkg=null;
-    return m.ready.then(function(){return m.import("@yandex/ymaps3-clusterer@0.0.1");}).then(function(p){
-      pkg=p;
-      M=new m.YMap($("map"),{location:{bounds:[[27,68],[170,42]]},theme:isDark()?"dark":"light"});
-      M.addChild(new m.YMapDefaultSchemeLayer({}));
-      M.addChild(new m.YMapFeatureDataSource({id:"inc"}));
-      M.addChild(new m.YMapLayer({source:"inc",type:"markers",zIndex:1800}));
-      M.addChild(new m.YMapListener({layer:"any",layerId:"any",onClick:function(){hideSheet();}}));
-      return {
-        name:"v3",
-        setPins:function(list){
-          var feats=list.map(function(i){return {type:"Feature",id:i.id,geometry:{type:"Point",coordinates:[i.lon,i.lat]},properties:{}};});
-          if(clusterer){M.removeChild(clusterer);}
-          clusterer=new pkg.YMapClusterer({
-            method:pkg.clusterByGrid({gridSize:72}),
-            features:feats,
-            marker:function(f){var i=byId[f.id]; return new m.YMapMarker({coordinates:f.geometry.coordinates,source:"inc",onClick:function(){showSheet(i,true);}},pinEl(i));},
-            cluster:function(c,fs){return new m.YMapMarker({coordinates:c,source:"inc",onClick:function(){M.setLocation({center:c,zoom:Math.min((M.zoom||4)+2,16),duration:300});}},clusEl(fs.length));}
-          });
-          M.addChild(clusterer);
-        },
-        fit:function(list){
-          if(!list.length)return;
-          var la=list.map(function(i){return i.lat;}), lo=list.map(function(i){return i.lon;});
-          var x0=Math.min.apply(null,lo), x1=Math.max.apply(null,lo), y0=Math.min.apply(null,la), y1=Math.max.apply(null,la);
-          if(x1-x0<0.05&&y1-y0<0.05){M.setLocation({center:[x0,y0],zoom:10,duration:300});return;}
-          M.setLocation({bounds:[[x0,y1],[x1,y0]],margin:[70,40,70,40],duration:300});
-        },
-        goTo:function(i){M.setLocation({center:[i.lon,i.lat],zoom:Math.max(M.zoom||5,9),duration:300});},
-        pan:function(i){M.setLocation({center:[i.lon,i.lat],duration:250});},
-        theme:function(){M.update({theme:isDark()?"dark":"light"});},
-        resize:function(){}
-      };
+  function makeLeaflet(){
+    var map=L.map("map",{zoomControl:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
+    map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
+    map.fitBounds([[42,27],[68,170]],{animate:false});
+
+    /* плитки: CARTO (светлая и тёмная версии), при сбое запасной вариант OpenStreetMap */
+    var tiles=null, tilesKey="", failed=0, loaded=0, useOsm=false;
+    function tileSpec(){
+      if(useOsm)return {key:"osm",url:"https://tile.openstreetmap.org/{z}/{x}/{y}.png",o:{}};
+      if(isDark())return {key:"dark",url:"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
+      return {key:"light",url:"https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
+    }
+    function setTiles(){
+      var sp=tileSpec(); if(sp.key===tilesKey)return; tilesKey=sp.key;
+      if(tiles)map.removeLayer(tiles);
+      var opt={maxZoom:18,attribution:"© OpenStreetMap" + (useOsm?"":", © CARTO"),updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1};
+      for(var k in sp.o)opt[k]=sp.o[k];
+      tiles=L.tileLayer(sp.url,opt).addTo(map);
+      tiles.on("tileload",function(){loaded++;});
+      tiles.on("tileerror",function(){failed++; if(!useOsm&&!loaded&&failed>=6){useOsm=true; setTiles();}});
+    }
+    setTiles();
+
+    var cluster=L.markerClusterGroup({
+      showCoverageOnHover:false,maxClusterRadius:55,animate:false,animateAddingMarkers:false,chunkedLoading:true,removeOutsideVisibleBounds:true,
+      iconCreateFunction:function(c){return L.divIcon({html:'<div class="clus">'+c.getChildCount()+'</div>',className:"",iconSize:[36,36]});}
     });
-  }
+    map.addLayer(cluster);
+    map.on("click",hideSheet);
 
-  /* ---- движок 2 (запасной): Яндекс Карты JS API 2.1 ---- */
-  function makeV2(){
-    var map=new ymaps.Map("map",{center:[62,95],zoom:3,controls:[]},{minZoom:2,suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
-    map.setBounds([[42,27],[68,170]],{checkZoomRange:true});
-    var pinLayout=ymaps.templateLayoutFactory.createClass('{{ properties.pin|raw }}');
-    var cluster=new ymaps.Clusterer({preset:"islands#invertedDarkBlueClusterIcons",gridSize:80,groupByCoordinates:false,clusterDisableClickZoom:false,hasBalloon:false});
-    map.geoObjects.add(cluster);
-    map.events.add("click",hideSheet);
     return {
-      name:"v2",
+      name:"leaflet",
       setPins:function(list){
-        cluster.removeAll();
-        cluster.add(list.map(function(i){
+        cluster.clearLayers();
+        cluster.addLayers(list.map(function(i){
           var t=TYPES[i.type]||TYPES.tech;
-          var pm=new ymaps.Placemark([i.lat,i.lon],{pin:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>'},
-            {iconLayout:pinLayout,iconOffset:[-15,-15],iconShape:{type:"Circle",coordinates:[15,15],radius:15},hasBalloon:false,hasHint:false});
-          pm.events.add("click",function(e){e.stopPropagation();showSheet(i,true);});
-          return pm;
+          var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>',iconSize:[30,30],iconAnchor:[15,15]});
+          var m=L.marker([i.lat,i.lon],{icon:icon,keyboard:false,riseOnHover:false});
+          m.on("click",function(){showSheet(i,true);});
+          return m;
         }));
       },
       fit:function(list){
         if(!list.length)return;
-        var la=list.map(function(i){return i.lat;}), lo=list.map(function(i){return i.lon;});
-        map.setBounds([[Math.min.apply(null,la),Math.min.apply(null,lo)],[Math.max.apply(null,la),Math.max.apply(null,lo)]],{checkZoomRange:true,zoomMargin:50})
-          .then(function(){if(map.getZoom()>9)map.setZoom(9);});
+        map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50],animate:false});
       },
-      goTo:function(i){map.setCenter([i.lat,i.lon],Math.max(map.getZoom(),9),{duration:300});},
-      pan:function(i){
-        var z=map.getZoom(), gc=map.getGlobalPixelCenter(), h=map.container.getSize()[1];
-        var pg=map.options.get("projection").toGlobalPixels([i.lat,i.lon],z), y=pg[1]-gc[1]+h/2;
-        if(y>h-210)map.setGlobalPixelCenter([gc[0],gc[1]+(y-(h-250))],z,{duration:200});
-      },
-      theme:function(){map.panes.get("ground").getElement().style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.82) contrast(.92)":"";},
-      resize:function(){map.container.fitToViewport();}
+      goTo:function(i){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9),{animate:true,duration:.3});},
+      pan:function(i){var p=map.latLngToContainerPoint([i.lat,i.lon]), h=map.getSize().y; if(p.y>h-210)map.panBy([0,p.y-(h-250)]);},
+      theme:function(){setTiles();},
+      resize:function(){map.invalidateSize();}
     };
   }
 
-  function useEngine(e){eng=e; try{e.setPins(lastList.slice(0,400));}catch(x){if(e.name==="v3"){eng=null;tryV2();return;}} applyMapTheme(); render(true);}
-  function tryV2(){
-    if(v2tried||eng)return; v2tried=true;
-    var host=$("map"); while(host.firstChild)host.removeChild(host.firstChild);
-    loadScript("https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YMAPS_KEY)+"&lang=ru_RU",function(ok){
-      if(!ok){noMap("Не удалось загрузить Яндекс Карты. Проверьте интернет. Лента и уведомления работают.");return;}
-      try{ymaps.ready(function(){try{useEngine(makeV2());}catch(e){noMap("Карта не запустилась. Лента и уведомления работают.");}});}
-      catch(e){noMap("Карта не запустилась. Лента и уведомления работают.");}
-    });
-  }
   function loadMap(){
-    if(!YMAPS_KEY||YMAPS_KEY.indexOf("__")===0){noMap("Карта не подключена: не указан ключ Яндекс Карт. Лента и уведомления работают.");return;}
-    loadScript("https://api-maps.yandex.ru/v3/?apikey="+encodeURIComponent(YMAPS_KEY)+"&lang=ru_RU",function(ok){
-      if(!ok){tryV2();return;}
-      try{makeV3().then(useEngine).catch(function(){tryV2();});}catch(e){tryV2();}
-    });
-    setTimeout(function(){if(!eng)tryV2();},12000);   /* если 3.0 завис, пробуем 2.1 */
+    if(typeof L==="undefined"||!L.markerClusterGroup){noMap("Не удалось загрузить карту. Проверьте интернет. Лента и уведомления работают.");return;}
+    try{eng=makeLeaflet();}catch(e){eng=null; noMap("Карта не запустилась. Лента и уведомления работают.");return;}
+    try{eng.setPins(lastList.slice(0,400));}catch(e){}
+    applyMapTheme(); render(true);
   }
 
   /* фильтры */
