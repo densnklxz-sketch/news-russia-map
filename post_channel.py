@@ -157,6 +157,41 @@ def fetch_lead(url):
     return " ".join(out)
 
 
+DIGEST_HOUR = int(os.environ.get("DIGEST_HOUR", "21"))  # час по Москве, 0-23; -1 отключает сводку
+
+
+def digest(con, now):
+    """Вечерняя сводка дня: сколько событий, по типам, топ-3 региона с главным заголовком каждого. Раз в сутки."""
+    msk = time.gmtime(now + 3 * 3600)
+    if DIGEST_HOUR < 0 or msk.tm_hour != DIGEST_HOUR:
+        return
+    day = time.strftime("%Y-%m-%d", msk)
+    row = con.execute("SELECT v FROM meta WHERE k='last_digest'").fetchone()
+    if row and row[0] == day:
+        return
+    rows = con.execute("SELECT title, type, region, place FROM incidents WHERE ts >= ? AND region != '' ORDER BY ts DESC",
+                       (now - 86400,)).fetchall()
+    if len(rows) < 10:
+        return
+    by_type, by_reg = {}, {}
+    for title, typ, region, place in rows:
+        by_type[typ] = by_type.get(typ, 0) + 1
+        by_reg.setdefault(region, []).append(title)
+    lines = [f"📊 <b>Итоги дня · {msk.tm_mday:02d}.{msk.tm_mon:02d}</b>", f"За сутки на карте {len(rows)} происшествий.", ""]
+    for k, n in sorted(by_type.items(), key=lambda x: -x[1]):
+        em, label = TYPES.get(k, TYPES["tech"])
+        lines.append(f"{em} {label}: {n}")
+    lines += ["", "<b>Где больше всего:</b>"]
+    for region, titles in sorted(by_reg.items(), key=lambda x: -len(x[1]))[:3]:
+        lines.append(f"📍 <b>{html.escape(region)}</b> · {len(titles)}\n   {html.escape(titles[0])}")
+    lines += ["", MAP_LINE]
+    if api("sendMessage", {"chat_id": CHANNEL, "text": "\n".join(lines), "parse_mode": "HTML",
+                           "disable_web_page_preview": True}) is not None:
+        con.execute("INSERT OR REPLACE INTO meta VALUES('last_digest', ?)", (day,))
+        con.commit()
+        print("Опубликована сводка дня.")
+
+
 def in_window():
     try:
         lo, hi = (int(x) for x in HOURS.split("-"))
@@ -189,6 +224,7 @@ def main():
         pass
     con.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
     now = int(time.time())
+    digest(con, now)
     row = con.execute("SELECT v FROM meta WHERE k='last_post'").fetchone()
     last = int(row[0]) if row else 0
     if now - last < MIN_GAP:
