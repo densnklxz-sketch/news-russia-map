@@ -32,6 +32,7 @@ def build():
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     html = html.replace("__DATA__", data)
     key = os.environ.get("YMAPS_KEY", "").strip()
+    html = html.replace("__BUILD__", time.strftime("%d.%m %H:%M UTC", time.gmtime()))
     html = html.replace("__YMAPS_KEY__", key)  # ключ Яндекс Карт (виден в коде страницы, защищается ограничением по домену)
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     tmp = OUT + ".tmp"
