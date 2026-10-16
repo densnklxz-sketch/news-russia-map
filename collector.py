@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта происшествий России</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  :root{
+    --bg:#EDF1F4; --panel:#FFFFFF; --glass:rgba(255,255,255,.93); --line:#C9D4DD; --fg:#14202B; --muted:#5A6C7C;
+    --chip:#E3EAF0; --accent:#D9461F; --on-accent:#fff;
+    --dtp:#C9741A; --fire:#CF3B36; --wx:#2A76CF; --crime:#7656C2; --tech:#18907D; --mil:#B03A7A;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
+      --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
+      --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
+    --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
+    --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+  button{font:inherit;color:inherit}
+  #app{height:100%;display:flex;flex-direction:column}
+  .views{flex:1;position:relative;min-height:0}
+  .view{position:absolute;inset:0;display:none}
+  .view.active{display:block}
+  #map{position:absolute;inset:0;background:var(--bg)}
+
+  /* нижнее меню */
+  .tabs{display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+  .tab{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px 6px;background:none;border:0;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer}
+  .tab svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .tab[aria-selected="true"]{color:var(--accent)}
+  .badge{position:absolute;top:3px;left:calc(50% + 6px);min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:600;line-height:17px;text-align:center;padding:0 4px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* фильтры */
+  .filters{display:flex;flex-direction:column;gap:6px}
+  .frow{display:flex;gap:6px;align-items:center;min-width:0}
+  .fbtn{flex:0 0 auto;width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--chip);display:grid;place-items:center;cursor:pointer}
+  .fbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+  .fbtn[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:var(--chip);cursor:pointer;font-weight:500;font-size:13px}
+  .chip i{width:9px;height:9px;border-radius:50%;background:var(--c)}
+  .chip small{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+  .chip[aria-pressed="false"]{background:transparent;color:var(--muted)}
+  .chip[aria-pressed="false"] i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--c)}
+  .fx{display:flex;gap:6px}
+  select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
+  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:6px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+
+  /* ленты */
+  .scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px max(14px,env(safe-area-inset-right,0px)) 18px max(14px,env(safe-area-inset-left,0px))}
+  #view-feed .filters{position:sticky;top:-10px;z-index:5;margin:-10px -2px 10px;padding:10px 2px 8px;background:var(--bg)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:12px;max-width:640px}
+  .pic{position:relative;aspect-ratio:16/9;background:var(--chip);overflow:hidden}
+  .pic img{width:100%;height:100%;object-fit:cover;display:block}
+  .credit{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:2px 8px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font-size:11px}
+  .cbody{padding:11px 13px 13px;display:flex;flex-direction:column;gap:6px}
+  .meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
+  .tag{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--c)}
+  .tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+  .card h3{margin:0;font-size:15px;line-height:1.3;text-wrap:balance}
+  .card p{margin:0;color:var(--muted)}
+  .place{font-size:12px;color:var(--muted)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--chip);font-size:13px;font-weight:500;text-decoration:none;color:var(--fg);cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .empty{padding:24px 8px;color:var(--muted);text-align:center}
+
+  /* карточка на карте */
+  #sheet{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:8px;z-index:900;max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(8,16,24,.28);display:flex;gap:10px;padding:10px}
+  #sheet[hidden]{display:none}
+  #sheet .thumb{flex:0 0 88px;height:88px;border-radius:10px;overflow:hidden;background:var(--chip)}
+  #sheet .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  #sheet .txt{min-width:0;display:flex;flex-direction:column;gap:4px;flex:1}
+  #sheet h3{margin:0;font-size:14px;line-height:1.3;padding-right:26px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  #sheet .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--muted);font-size:20px;cursor:pointer}
+
+  /* уведомления */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;max-width:640px;display:flex;flex-direction:column;gap:10px}
+  .panel h2{margin:0;font-size:16px}
+  .panel p{margin:0;color:var(--muted)}
+  .lab{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .nrow{display:grid;grid-template-columns:10px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left;width:100%}
+  .nrow .d{width:9px;height:9px;border-radius:50%;background:var(--c);margin-top:5px}
+  .nrow b{display:block;font-weight:500}
+  .nrow small{color:var(--muted)}
+
+  .pin{width:30px;height:30px;border-radius:50%;background:#fff;border:2.5px solid var(--c);box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+  .pin.approx{border-style:dashed}
+  .leaflet-container{font:inherit;background:var(--bg)}
+  .leaflet-control-attribution{font-size:10px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="views">
+    <section class="view active" id="view-map" aria-label="Карта">
+      <div id="map"></div>
+      <div id="sheet" hidden></div>
+    </section>
+    <section class="view" id="view-feed" aria-label="Лента"><div class="scroll" id="feedscroll"><div id="feedlist"></div></div></section>
+    <section class="view" id="view-notify" aria-label="Уведомления"><div class="scroll" id="notifyscroll"></div></section>
+    <div class="filters" id="filters">
+      <div class="frow">
+        <button class="fbtn" id="fbtn" type="button" aria-label="Период и регион" aria-expanded="false">
+          <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        </button>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="fx" id="fx" hidden>
+        <select id="period" aria-label="Период">
+          <option value="1">За 24 часа</option>
+          <option value="3">За 3 дня</option>
+          <option value="7">За 7 дней</option>
+          <option value="30" selected>За 30 дней</option>
+        </select>
+        <select id="region" aria-label="Регион"><option value="">Вся Россия</option></select>
+      </div>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="map" aria-selected="true">
+      <svg viewBox="0 0 24 24"><path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7 9 4Z"/><path d="M9 4v13M15 7v13"/></svg>Карта
+    </button>
+    <button class="tab" role="tab" data-tab="feed" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>Лента
+    </button>
+    <button class="tab" role="tab" data-tab="notify" aria-selected="false" id="tabnotify">
+      <svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15L6 17Z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>Уведомления
+      <span class="badge" id="badge" hidden></span>
+    </button>
+  </nav>
+</div>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(function(){
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); }
+
+  var BOT = "NewsRussiaMapBot";
+  var DATA = __DATA__;
+  DATA.sort(function(a,b){return b.ts-a.ts;});
+
+  var TYPES = {
+    dtp:{e:"🚗",name:"ДТП",c:"var(--dtp)"}, fire:{e:"🔥",name:"Пожары",c:"var(--fire)"}, wx:{e:"⚡",name:"ЧС и погода",c:"var(--wx)"},
+    crime:{e:"⛔",name:"Правонарушения",c:"var(--crime)"}, tech:{e:"🆘",name:"Аварии и ЧП",c:"var(--tech)"}, mil:{e:"🪖",name:"Атаки и обстрелы",c:"var(--mil)"}
+  };
+  var $ = function(id){return document.getElementById(id);};
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  function safeUrl(u){return /^https?:\/\//i.test(u||"")?u:"#";}
+  function ago(ts){var m=Math.round((Date.now()/1000-ts)/60); if(m<60)return Math.max(m,1)+" мин назад"; var h=Math.round(m/60); return h<24?h+" ч назад":Math.round(h/24)+" дн. назад";}
+  function when(i){return i.tsNote||new Date(i.ts*1000).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});}
+  function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
+
+  var on = {}; Object.keys(TYPES).forEach(function(k){on[k]=true;});
+  var byId = {}; DATA.forEach(function(i,n){i.id="i"+n; byId[i.id]=i;});
+
+  /* ссылки открываются средствами Telegram, если он есть */
+  document.addEventListener("click",function(e){
+    var a=e.target.closest&&e.target.closest("a[data-ext]");
+    if(a&&tg&&tg.openLink){e.preventDefault();tg.openLink(a.href);}
+  });
+  /* если картинка не загрузилась, убираем блок с ней */
+  document.addEventListener("error",function(e){
+    var t=e.target; if(t&&t.tagName==="IMG"&&t.dataset.pic){var box=t.closest(".pic,.thumb"); if(box)box.remove();}
+  },true);
+
+  /* карта */
+  var map = L.map("map",{zoomControl:false,minZoom:2,worldCopyJump:false});
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
+  map.attributionControl.setPosition("bottomleft");
+  map.fitBounds([[42,27],[68,170]]);
+  var cluster = L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:40}).addTo(map);
+  var markers = {};
+
+  /* фильтры */
+  var chips=$("chips");
+  Object.keys(TYPES).forEach(function(k){
+    var b=document.createElement("button"); b.className="chip"; b.type="button"; b.id="chip-"+k; b.setAttribute("aria-pressed","true"); b.style.setProperty("--c",TYPES[k].c);
+    b.innerHTML='<i></i>'+TYPES[k].e+' '+esc(TYPES[k].name)+' <small id="n-'+k+'"></small>';
+    b.onclick=function(){on[k]=!on[k]; b.setAttribute("aria-pressed",on[k]); render();};
+    chips.appendChild(b);
+  });
+  var regions={}; DATA.forEach(function(i){regions[i.region]=1;});
+  var regionList=Object.keys(regions).sort(function(a,b){return a.localeCompare(b,"ru");});
+  regionList.forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;$("region").appendChild(o);});
+  $("fbtn").onclick=function(){var h=$("fx").hidden; $("fx").hidden=!h; this.setAttribute("aria-expanded",h);};
+  $("period").onchange=function(){render();};
+  $("region").onchange=function(){render(true);};
+
+  function visible(ignoreTypes){
+    var lim=Date.now()/1000-(+$("period").value)*86400, reg=$("region").value;
+    return DATA.filter(function(i){return i.ts>=lim && (!reg||i.region===reg) && (ignoreTypes||on[i.type]);});
+  }
+  function tag(i){var t=TYPES[i.type]||TYPES.tech; return '<span class="tag" style="--c:'+t.c+'">'+t.e+' '+esc(t.name)+'</span>';}
+  function credit(i){return '<span class="credit">Фото: '+esc(i.source)+'</span>';}
+  function picHtml(i){return i.img&&/^https:\/\//.test(i.img)?'<div class="pic"><img data-pic="1" loading="lazy" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'">'+credit(i)+'</div>':'';}
+
+  function render(zoom){
+    var all=visible(true), counts={}; all.forEach(function(i){counts[i.type]=(counts[i.type]||0)+1;});
+    Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
+    var list=all.filter(function(i){return on[i.type];});
+
+    cluster.clearLayers(); markers={};
+    list.forEach(function(i){
+      var t=TYPES[i.type]||TYPES.tech;
+      var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>',iconSize:[30,30],iconAnchor:[15,15]});
+      var m=L.marker([i.lat,i.lon],{icon:icon}); m.on("click",function(){showSheet(i,true);});
+      cluster.addLayer(m); markers[i.id]=m;
+    });
+    if(zoom&&list.length){map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50]});}
+
+    var box=$("feedlist"); box.textContent="";
+    if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
+    list.forEach(function(i){
+      var c=document.createElement("article"); c.className="card";
+      c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
+        '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+', '+esc(i.region)+'</div>'+
+        '<div class="acts"><button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>'+
+        '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
+      box.appendChild(c);
+    });
+    if(sheetId&&!byId[sheetId]) hideSheet();
+    badge();
+  }
+  $("feedlist").addEventListener("click",function(e){
+    var b=e.target.closest("[data-show]"); if(!b)return;
+    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
+  });
+
+  /* карточка на карте */
+  var sheetId=null;
+  function showSheet(i,pan){
+    sheetId=i.id; var s=$("sheet");
+    s.innerHTML=(i.img&&/^https:\/\//.test(i.img)?'<div class="thumb"><img data-pic="1" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'"></div>':'')+
+      '<div class="txt">'+tag(i)+'<h3>'+esc(i.title)+'</h3><div class="place">'+esc(i.place)+' · '+esc(when(i))+'</div>'+
+      '<div class="acts"><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
+      '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
+    s.hidden=false; $("sx").onclick=hideSheet;
+    if(pan){var p=map.latLngToContainerPoint([i.lat,i.lon]), h=map.getSize().y; if(p.y>h-210)map.panBy([0,p.y-(h-250)]);}
+  }
+  function hideSheet(){sheetId=null;$("sheet").hidden=true;}
+  map.on("click",hideSheet);
+
+  /* уведомления */
+  var sub={region:store("nm_region")||"",types:{}};
+  try{sub.types=JSON.parse(store("nm_types")||"{}");}catch(e){sub.types={};}
+  Object.keys(TYPES).forEach(function(k){if(sub.types[k]===undefined)sub.types[k]=true;});
+  var lastSeen=+store("nm_seen")||0;
+  function matches(i){return (!sub.region||i.region===sub.region)&&sub.types[i.type];}
+  function fresh(){var since=lastSeen||Date.now()/1000-86400; return DATA.filter(function(i){return i.ts>since&&matches(i);});}
+  function badge(){var n=tab==="notify"?0:fresh().length, b=$("badge"); b.hidden=!n; b.textContent=n>9?"9+":n;}
+
+  function renderNotify(){
+    var box=$("notifyscroll"), items=fresh();
+    box.innerHTML=
+      '<div class="panel"><h2>Уведомления о новых происшествиях</h2>'+
+      '<p>Выберите регион и типы событий, затем подпишитесь в чате с ботом: он будет присылать новые происшествия сообщениями.</p>'+
+      '<div class="lab">Регион</div><select id="subRegion" aria-label="Регион для уведомлений"><option value="">Вся Россия</option>'+
+      regionList.map(function(r){return '<option value="'+esc(r)+'"'+(r===sub.region?" selected":"")+'>'+esc(r)+'</option>';}).join("")+'</select>'+
+      '<div class="lab">Что интересует</div><div class="chips" id="subTypes" style="flex-wrap:wrap;overflow:visible"></div>'+
+      '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button></div>'+
+      '<div class="panel"><h2>Новое с вашего прошлого визита</h2><div id="newlist"></div>'+
+      '<p style="font-size:12px">Это демонстрационная версия: данные добавляются вручную. С подключённым сервером список пополняется сам.</p></div>';
+    var st=$("subTypes");
+    Object.keys(TYPES).forEach(function(k){
+      var b=document.createElement("button"); b.className="chip"; b.type="button"; b.style.setProperty("--c",TYPES[k].c); b.setAttribute("aria-pressed",!!sub.types[k]);
+      b.innerHTML='<i></i>'+TYPES[k].e+' '+esc(TYPES[k].name);
+      b.onclick=function(){sub.types[k]=!sub.types[k]; b.setAttribute("aria-pressed",!!sub.types[k]); store("nm_types",JSON.stringify(sub.types)); fillNew();};
+      st.appendChild(b);
+    });
+    $("subRegion").onchange=function(){sub.region=this.value; store("nm_region",sub.region); fillNew();};
+    $("subgo").onclick=function(){
+      var link="https://t.me/nrmpnews";
+      if(tg&&tg.openTelegramLink)tg.openTelegramLink(link); else window.open(link,"_blank");
+    };
+    fillNew(items);
+  }
+  function fillNew(items){
+    items=items||fresh(); var box=$("newlist"); if(!box)return;
+    if(!items.length){box.innerHTML='<p>Новых происшествий нет.</p>';return;}
+    box.innerHTML=items.slice(0,30).map(function(i){var t=TYPES[i.type]||TYPES.tech;
+      return '<button class="nrow" type="button" data-show="'+i.id+'" style="--c:'+t.c+'"><span class="d"></span><span><b>'+esc(i.title)+'</b><small>'+esc(i.place)+' · '+esc(ago(i.ts))+'</small></span></button>';}).join("");
+  }
+  $("notifyscroll").addEventListener("click",function(e){
+    var b=e.target.closest("[data-show]"); if(!b)return;
+    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    setTimeout(function(){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9));showSheet(i,false);},60);
+  });
+
+  /* вкладки */
+  var tab="map";
+  function setTab(t){
+    tab=t;
+    document.querySelectorAll(".tab").forEach(function(b){b.setAttribute("aria-selected",b.dataset.tab===t);});
+    ["map","feed","notify"].forEach(function(n){$("view-"+n).classList.toggle("active",n===t);});
+    var f=$("filters");
+    if(t==="map")$("view-map").appendChild(f);
+    else if(t==="feed"){var sc=$("feedscroll"); sc.insertBefore(f,sc.firstChild);}
+    f.style.display=t==="notify"?"none":"";
+    if(t==="map")setTimeout(function(){map.invalidateSize();},30);
+    if(t==="notify"){renderNotify(); lastSeen=Math.floor(Date.now()/1000); store("nm_seen",String(lastSeen));}
+    badge();
+  }
+  document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){setTab(b.dataset.tab);};});
+  window.addEventListener("resize",function(){map.invalidateSize();});
+
+  $("view-map").appendChild($("filters"));
+  render(); setTab("map");
+})();
+</script>
+</body>
+</html>

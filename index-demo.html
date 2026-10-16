@@ -1,0 +1,67 @@
+name: Обновление карты
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"     # каждые 20 минут (GitHub может задерживать запуск на несколько минут)
+  workflow_dispatch:           # кнопка «Run workflow» для ручного запуска
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update-map
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install feedparser==6.0.11 requests==2.32.3
+
+      # База записей хранится в кэше GitHub между запусками
+      - name: Восстановить базу
+        uses: actions/cache/restore@v4
+        with:
+          path: incidents.db
+          key: db-${{ github.run_id }}
+          restore-keys: db-
+
+      - name: "Первый запуск: загрузить демо-записи"
+        run: |
+          if [ ! -f incidents.db ]; then python seed_demo.py; fi
+
+      - name: Собрать новые происшествия из лент
+        env:
+          DB_PATH: incidents.db
+          USER_AGENT: "incident-map-collector/1.0 (https://github.com/${{ github.repository }})"
+        run: python collector.py
+
+      - name: Сохранить базу
+        uses: actions/cache/save@v4
+        with:
+          path: incidents.db
+          key: db-${{ github.run_id }}
+
+      - name: Собрать страницу
+        env:
+          DB_PATH: incidents.db
+          SITE_OUT: site/index.html
+        run: python build_site.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
