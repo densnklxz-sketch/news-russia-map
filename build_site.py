@@ -31,6 +31,8 @@ def build():
     # "</" внутри <script> ломает разметку, поэтому экранируем
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     html = html.replace("__DATA__", data)
+    key = os.environ.get("YMAPS_KEY", "").strip()
+    html = html.replace("__YMAPS_KEY__", key)  # ключ Яндекс Карт (виден в коде страницы, защищается ограничением по домену)
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     tmp = OUT + ".tmp"
     open(tmp, "w", encoding="utf-8").write(html)
