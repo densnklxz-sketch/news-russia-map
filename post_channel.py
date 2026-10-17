@@ -86,7 +86,7 @@ def similar(a, b):
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.55
 
 
-def excerpt(summary, title, limit=700):
+def excerpt(summary, title, limit=1200):
     """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
     t = re.sub(r"\s+", " ", summary or "").strip()
     # режем всё, что похоже на код и рекламную «подвал» страницы
@@ -171,7 +171,7 @@ def fetch_lead(url):
         if len(t) >= 80 and clean_text(t):
             parts.append(t)
             n += 1
-        if n >= 3 or len(" ".join(parts)) > 900:
+        if n >= 5 or len(" ".join(parts)) > 1500:
             break
     out = []
     for t in parts:
@@ -238,7 +238,16 @@ def good_photo(img):
     return img
 
 
-SOURCE_LINK = os.environ.get("SOURCE_LINK", "1") not in ("", "0", "false")
+SOURCE_LINK = os.environ.get("SOURCE_LINK", "0") not in ("", "0", "false")  # 1 = ссылка на самом заголовке
+
+
+def src_tail(url, source):
+    """« · ТАСС» со ссылкой на новость, если название источника короче 6 знаков, иначе « · СМИ»."""
+    if SOURCE_LINK:
+        return ""
+    name = (source or "").strip()
+    word = name if 0 < len(name) < 6 else "СМИ"
+    return f' · <a href="{html.escape(url, quote=True)}">{html.escape(word)}</a>'
 
 
 def head_html(url, title):
@@ -290,11 +299,11 @@ def main():
     recent = [r[0] for r in con.execute(
         "SELECT title FROM incidents WHERE posted_at > ?", (now - 86400,))]
     cands = con.execute(
-        "SELECT url, title, type, place, region, summary, img FROM incidents "
+        "SELECT url, title, type, place, region, summary, img, source FROM incidents "
         "WHERE posted_at IS NULL AND ts >= ? AND title != '' AND place != '' ORDER BY ts DESC LIMIT 60",
         (now - FRESH,)).fetchall()
     sent = 0
-    for url, title, typ, place, region, summary, img in cands:
+    for url, title, typ, place, region, summary, img, source in cands:
         if sent >= MAX_POSTS:
             break
         if old_date(title):
@@ -306,13 +315,13 @@ def main():
         em, label = TYPES.get(typ, TYPES["tech"])
         where = where_text(place, region)
         body = excerpt(summary, title)
-        if len(body) < 250:
+        if len(body) < 700:
             more = excerpt(fetch_lead(url), title)
             if len(more) > len(body):
                 body = more
         text = (head_html(url, title)
                 + (f"{html.escape(body)}\n\n" if body else "")
-                + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
+                + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{MAP_LINE}")
         res = None
         photo = good_photo(img) if USE_PHOTO else ""
         if photo:
@@ -321,7 +330,7 @@ def main():
                 body_short = excerpt(body, title, limit=max(120, 920 - (len(text) - len(html.escape(body)))))
                 cap = (head_html(url, title)
                        + (f"{html.escape(body_short)}\n\n" if body_short else "")
-                       + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
+                       + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{MAP_LINE}")
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
                                     "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
         if res is None:  # нет фото или Telegram его не принял: обычный пост
