@@ -22,6 +22,7 @@ import re
 import sqlite3
 import sys
 import time
+import zlib
 
 import requests
 
@@ -33,10 +34,21 @@ MIN_GAP = int(os.environ.get("MIN_GAP_MIN", "25")) * 60
 FRESH = int(os.environ.get("FRESH_HOURS", "6")) * 3600
 HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
-MAP_URL = "https://t.me/NewsRussiaMapBot/NewsRussiaMap"
+SITE_URL = os.environ.get("SITE_URL", "https://news-russia-map.ru/").strip() or "https://news-russia-map.ru/"
+MAP_URL = SITE_URL  # ссылка на карту в постах: сайт (можно переопределить переменной SITE_URL)
 MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
-MAP_LINE = ('🗺 Все происшествия на <a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">карте</a>\n'
+MAP_LINE = ('🗺 Все происшествия на <a href="' + MAP_URL + '">карте</a>\n'
             '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
+
+
+def map_for(url):
+    """Ссылка на карту, открывающая именно эту новость (?p=<crc32 ссылки>). Возвращает (строка_для_текста, кнопка)."""
+    code = format(zlib.crc32(url.encode("utf-8")) & 0xFFFFFFFF, "x")
+    link = f"{SITE_URL}{'&' if '?' in SITE_URL else '?'}p={code}"
+    line = ('🗺 Все происшествия на <a href="' + html.escape(link, quote=True) + '">карте</a>\n'
+            '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
+    return line, {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": link}]]}
+
 
 TYPES = {
     "dtp": ("🚗", "ДТП"), "fire": ("🔥", "Пожар"), "wx": ("⚡", "ЧС и погода"),
@@ -313,6 +325,7 @@ def main():
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # дубль чужой новости: не публикуем
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
+        post_line, post_button = map_for(url)
         where = where_text(place, region)
         body = excerpt(summary, title)
         if len(body) < 700:
@@ -321,7 +334,7 @@ def main():
                 body = more
         text = (head_html(url, title)
                 + (f"{html.escape(body)}\n\n" if body else "")
-                + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{MAP_LINE}")
+                + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
         res = None
         photo = good_photo(img) if USE_PHOTO else ""
         if photo:
@@ -330,11 +343,11 @@ def main():
                 body_short = excerpt(body, title, limit=max(120, 920 - (len(text) - len(html.escape(body)))))
                 cap = (head_html(url, title)
                        + (f"{html.escape(body_short)}\n\n" if body_short else "")
-                       + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{MAP_LINE}")
+                       + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
-                                    "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
+                                    "parse_mode": "HTML", "reply_markup": post_button})
         if res is None:  # нет фото или Telegram его не принял: обычный пост
-            res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON,
+            res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": post_button,
                                       "disable_web_page_preview": not SOURCE_LINK})
         if res is None:
             break  # не повторяем в этом запуске, чтобы не засыпать лог
