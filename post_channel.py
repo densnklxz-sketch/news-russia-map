@@ -213,6 +213,29 @@ def digest(con, now):
         print("Опубликована сводка дня.")
 
 
+USE_PHOTO = os.environ.get("USE_PHOTO", "1") not in ("0", "false", "")
+BAD_IMG = re.compile(r"logo|favicon|placeholder|default|noimage|no-image|avatar|sprite|\.svg|\.gif|\.ico", re.I)
+
+
+def good_photo(img):
+    """Фото берём, если ссылка похожа на настоящую картинку: не логотип, не крошечная, не больше 8 МБ."""
+    if not img or not str(img).startswith("http") or BAD_IMG.search(img):
+        return ""
+    try:
+        r = requests.head(img, timeout=8, allow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code >= 400:
+            return ""
+        ctype = r.headers.get("Content-Type", "")
+        size = int(r.headers.get("Content-Length") or 0)
+    except Exception:
+        return ""
+    if ctype and not ctype.lower().startswith("image/"):
+        return ""
+    if 0 < size < 15000 or size > 8_000_000:
+        return ""
+    return img
+
+
 def in_window():
     try:
         lo, hi = (int(x) for x in HOURS.split("-"))
@@ -255,11 +278,11 @@ def main():
     recent = [r[0] for r in con.execute(
         "SELECT title FROM incidents WHERE posted_at > ?", (now - 86400,))]
     cands = con.execute(
-        "SELECT url, title, type, place, region, summary FROM incidents "
+        "SELECT url, title, type, place, region, summary, img FROM incidents "
         "WHERE posted_at IS NULL AND ts >= ? AND title != '' AND place != '' ORDER BY ts DESC LIMIT 60",
         (now - FRESH,)).fetchall()
     sent = 0
-    for url, title, typ, place, region, summary in cands:
+    for url, title, typ, place, region, summary, img in cands:
         if sent >= MAX_POSTS:
             break
         if old_date(title):
@@ -278,7 +301,19 @@ def main():
         text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
                 + (f"{html.escape(body)}\n\n" if body else "")
                 + f"{em} {label} · 📍 {html.escape(where)}")
-        res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
+        res = None
+        photo = good_photo(img) if USE_PHOTO else ""
+        if photo:
+            cap = text
+            if len(cap) > 1020:  # лимит подписи к фото 1024: укорачиваем выдержку
+                body_short = excerpt(body, title, limit=max(120, 1020 - (len(text) - len(html.escape(body)))))
+                cap = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
+                       + (f"{html.escape(body_short)}\n\n" if body_short else "")
+                       + f"{em} {label} · 📍 {html.escape(where)}")
+            res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
+                                    "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
+        if res is None:  # нет фото или Telegram его не принял: обычный пост
+            res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
         if res is None:
             break  # не повторяем в этом запуске, чтобы не засыпать лог
         con.execute("UPDATE incidents SET posted_at=? WHERE url=?", (now, url))
