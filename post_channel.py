@@ -33,6 +33,8 @@ MIN_GAP = int(os.environ.get("MIN_GAP_MIN", "25")) * 60
 FRESH = int(os.environ.get("FRESH_HOURS", "6")) * 3600
 HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
+MAP_URL = "https://t.me/NewsRussiaMapBot/NewsRussiaMap"
+MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
 MAP_LINE = "🗺 Все происшествия на карте: t.me/NewsRussiaMapBot/NewsRussiaMap"
 
 TYPES = {
@@ -204,9 +206,8 @@ def digest(con, now):
     lines += ["", "<b>Где больше всего:</b>"]
     for region, titles in sorted(by_reg.items(), key=lambda x: -len(x[1]))[:3]:
         lines.append(f"📍 <b>{html.escape(region)}</b> · {len(titles)}\n   {html.escape(titles[0])}")
-    lines += ["", MAP_LINE]
     if api("sendMessage", {"chat_id": CHANNEL, "text": "\n".join(lines), "parse_mode": "HTML",
-                           "disable_web_page_preview": True}) is not None:
+                           "disable_web_page_preview": True, "reply_markup": MAP_BUTTON}) is not None:
         con.execute("INSERT OR REPLACE INTO meta VALUES('last_digest', ?)", (day,))
         con.commit()
         print("Опубликована сводка дня.")
@@ -276,8 +277,8 @@ def main():
                 body = more
         text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
                 + (f"{html.escape(body)}\n\n" if body else "")
-                + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
-        res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML"})
+                + f"{em} {label} · 📍 {html.escape(where)}")
+        res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
         if res is None:
             break  # не повторяем в этом запуске, чтобы не засыпать лог
         con.execute("UPDATE incidents SET posted_at=? WHERE url=?", (now, url))
