@@ -35,7 +35,7 @@ HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
 MAP_URL = "https://t.me/NewsRussiaMapBot/NewsRussiaMap"
 MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
-MAP_LINE = ('<a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">🗺 Все происшествия на карте</a>\n'
+MAP_LINE = ('🗺 Все происшествия на <a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">карте</a>\n'
             '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
 
 TYPES = {
