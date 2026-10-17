@@ -86,6 +86,10 @@ def similar(a, b):
 def excerpt(summary, title, limit=700):
     """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
     t = re.sub(r"\s+", " ", summary or "").strip()
+    # режем всё, что похоже на код и рекламную «подвал» страницы
+    t = re.split(r"-->|<!--|\{|\}|=>|\bfunction\b|\blocation\.|Установи|Промокод", t)[0].strip()
+    sents = re.findall(r"[^.!?]+[.!?»)]*\s*", t)
+    t = "".join(x for x in sents if not re.search(r"https?:|www\.|\.ru\b|\.com\b|©|читайте также", x, re.I)).strip()
     # убираем «МОСКВА, 16 окт — РИА Новости.» и «МОСКВА, 16 октября. /ТАСС/.» в начале
     t = re.sub(r"^[А-ЯЁ][А-ЯЁ\- ]{2,30},\s*\d{1,2}\s+[а-яё]+\.?\s*(?:[—–-]\s*[^.]{1,40}\.|/[^/]{1,20}/\.)?\s*", "", t)
     if len(t) < 40 or similar(t, title) and len(words(t) - words(title)) < 4:
@@ -127,12 +131,24 @@ def where_text(place, region):
     return f"{place}, {region}"
 
 
+def clean_text(t):
+    """Отсекает мусор со страниц: код, меню, реклама, промокоды, ссылки."""
+    if re.search(r"[{}<>=;]|-->|=>|function|var |https?:|www\.|\.ru\b|\.com\b|cookie|подпиш|реклам|промокод|©|читайте также|фото:|\bчитать\b", t, re.I):
+        return False
+    if not re.search(r"[.!?»)]$", t):
+        return False
+    cyr = len(re.findall(r"[А-Яа-яЁё]", t))
+    return cyr / max(len(t), 1) > 0.6
+
+
 def fetch_lead(url):
     """Если анонс в ленте короткий, берём описание и первые абзацы со страницы новости (несколько предложений, не вся статья)."""
     try:
         r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (compatible; NRMPBot/1.0)"})
         r.encoding = r.apparent_encoding if not r.encoding or r.encoding.lower() == "iso-8859-1" else r.encoding
         page = r.text[:400000]
+        page = re.sub(r"(?is)<(script|style|noscript|nav|footer|aside|form|iframe|svg|header)\b.*?</\1>", " ", page)
+        page = re.sub(r"(?s)<!--.*?-->", " ", page)
     except Exception:
         return ""
     parts = []
@@ -141,14 +157,18 @@ def fetch_lead(url):
                 r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)'):
         m = re.search(pat, page, re.I)
         if m:
-            parts.append(html.unescape(m.group(1)))
+            d = html.unescape(m.group(1)).strip()
+            if clean_text(d):
+                parts.append(d)
             break
+    n = 0
     for m in re.finditer(r"<p[^>]*>(.*?)</p>", page, re.S | re.I):
         t = html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))
         t = re.sub(r"\s+", " ", t).strip()
-        if len(t) >= 80 and not re.search(r"cookie|подпиш|реклам|©", t, re.I):
+        if len(t) >= 80 and clean_text(t):
             parts.append(t)
-        if len(" ".join(parts)) > 900:
+            n += 1
+        if n >= 3 or len(" ".join(parts)) > 900:
             break
     out = []
     for t in parts:
