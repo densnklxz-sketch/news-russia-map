@@ -227,10 +227,10 @@
   }
   function applyMapTheme(){ if(eng){try{eng.theme();}catch(e){}} }
   window.__applyMapTheme=applyMapTheme;
-  /* Москва и Подмосковье: на карте только события с точным адресом (улица и дом), остальные - только в ленте.
-     Остальные регионы показываются как раньше (неточные пины помечены пунктиром). */
+  /* Подмосковье (Московская область): на карте только события с точным адресом (улица и дом), остальные - только в ленте.
+     Москва и остальные регионы показываются как раньше (неточные пины помечены пунктиром). */
   function isExact(i){ return !!i.precise && /\d/.test(i.place||""); }
-  function onMap(i){ var r=i.region||""; return (r==="Москва"||r==="Московская область") ? isExact(i) : true; }
+  function onMap(i){ return (i.region||"")==="Московская область" ? isExact(i) : true; }
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
 
   function makeLeaflet(){
