@@ -35,7 +35,7 @@ HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
 MAP_URL = "https://t.me/NewsRussiaMapBot/NewsRussiaMap"
 MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
-MAP_LINE = "🗺 Все происшествия на карте: t.me/NewsRussiaMapBot/NewsRussiaMap"
+MAP_LINE = '<a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">🗺 Все происшествия на карте</a>'
 
 TYPES = {
     "dtp": ("🚗", "ДТП"), "fire": ("🔥", "Пожар"), "wx": ("⚡", "ЧС и погода"),
@@ -206,6 +206,7 @@ def digest(con, now):
     lines += ["", "<b>Где больше всего:</b>"]
     for region, titles in sorted(by_reg.items(), key=lambda x: -len(x[1]))[:3]:
         lines.append(f"📍 <b>{html.escape(region)}</b> · {len(titles)}\n   {html.escape(titles[0])}")
+    lines += ["", MAP_LINE]
     if api("sendMessage", {"chat_id": CHANNEL, "text": "\n".join(lines), "parse_mode": "HTML",
                            "disable_web_page_preview": True, "reply_markup": MAP_BUTTON}) is not None:
         con.execute("INSERT OR REPLACE INTO meta VALUES('last_digest', ?)", (day,))
@@ -300,16 +301,16 @@ def main():
                 body = more
         text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
                 + (f"{html.escape(body)}\n\n" if body else "")
-                + f"{em} {label} · 📍 {html.escape(where)}")
+                + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
         res = None
         photo = good_photo(img) if USE_PHOTO else ""
         if photo:
             cap = text
-            if len(cap) > 1020:  # лимит подписи к фото 1024: укорачиваем выдержку
-                body_short = excerpt(body, title, limit=max(120, 1020 - (len(text) - len(html.escape(body)))))
+            if len(cap) > 1000:  # лимит подписи к фото 1024: укорачиваем выдержку
+                body_short = excerpt(body, title, limit=max(120, 990 - (len(text) - len(html.escape(body)))))
                 cap = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
                        + (f"{html.escape(body_short)}\n\n" if body_short else "")
-                       + f"{em} {label} · 📍 {html.escape(where)}")
+                       + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
                                     "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
         if res is None:  # нет фото или Telegram его не принял: обычный пост
