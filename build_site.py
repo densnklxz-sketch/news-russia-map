@@ -2,7 +2,7 @@
 
 Один раз:      python build_site.py
 По кругу:      python build_site.py --loop 300     (раз в 5 минут)
-Переменные:    DB_PATH, SITE_OUT (куда писать, по умолчанию /var/www/incident-map/index.html), SITE_DAYS (за сколько дней, 14)
+Переменные:    DB_PATH, SITE_OUT (куда писать, по умолчанию /var/www/incident-map/index.html), SITE_DAYS (за сколько дней, 5)
 """
 import json
 import os
@@ -12,7 +12,7 @@ import time
 
 DB_PATH = os.environ.get("DB_PATH", "incidents.db")
 OUT = os.environ.get("SITE_OUT", "/var/www/incident-map/index.html")
-DAYS = int(os.environ.get("SITE_DAYS", "14"))
+DAYS = int(os.environ.get("SITE_DAYS", "5"))
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "template.html")
 FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img"
 
