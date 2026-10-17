@@ -35,7 +35,8 @@ HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
 MAP_URL = "https://t.me/NewsRussiaMapBot/NewsRussiaMap"
 MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
-MAP_LINE = '<a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">🗺 Все происшествия на карте</a>'
+MAP_LINE = ('<a href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">🗺 Все происшествия на карте</a>\n'
+            '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
 
 TYPES = {
     "dtp": ("🚗", "ДТП"), "fire": ("🔥", "Пожар"), "wx": ("⚡", "ЧС и погода"),
@@ -237,6 +238,16 @@ def good_photo(img):
     return img
 
 
+SOURCE_LINK = os.environ.get("SOURCE_LINK", "1") not in ("", "0", "false")
+
+
+def head_html(url, title):
+    """Заголовок поста: жирным без ссылки (SOURCE_LINK=1 вернёт ссылку на источник)."""
+    if SOURCE_LINK:
+        return f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
+    return f"<b>{html.escape(title)}</b>\n\n"
+
+
 def in_window():
     try:
         lo, hi = (int(x) for x in HOURS.split("-"))
@@ -299,7 +310,7 @@ def main():
             more = excerpt(fetch_lead(url), title)
             if len(more) > len(body):
                 body = more
-        text = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
+        text = (head_html(url, title)
                 + (f"{html.escape(body)}\n\n" if body else "")
                 + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
         res = None
@@ -307,14 +318,15 @@ def main():
         if photo:
             cap = text
             if len(cap) > 1000:  # лимит подписи к фото 1024: укорачиваем выдержку
-                body_short = excerpt(body, title, limit=max(120, 990 - (len(text) - len(html.escape(body)))))
-                cap = (f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
+                body_short = excerpt(body, title, limit=max(120, 920 - (len(text) - len(html.escape(body)))))
+                cap = (head_html(url, title)
                        + (f"{html.escape(body_short)}\n\n" if body_short else "")
                        + f"{em} {label} · 📍 {html.escape(where)}\n\n{MAP_LINE}")
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
                                     "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
         if res is None:  # нет фото или Telegram его не принял: обычный пост
-            res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON})
+            res = api("sendMessage", {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "reply_markup": MAP_BUTTON,
+                                      "disable_web_page_preview": not SOURCE_LINK})
         if res is None:
             break  # не повторяем в этом запуске, чтобы не засыпать лог
         con.execute("UPDATE incidents SET posted_at=? WHERE url=?", (now, url))
