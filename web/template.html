@@ -227,6 +227,10 @@
   }
   function applyMapTheme(){ if(eng){try{eng.theme();}catch(e){}} }
   window.__applyMapTheme=applyMapTheme;
+  /* Москва и Подмосковье: на карте только события с точным адресом (улица и дом), остальные - только в ленте.
+     Остальные регионы показываются как раньше (неточные пины помечены пунктиром). */
+  function isExact(i){ return !!i.precise && /\d/.test(i.place||""); }
+  function onMap(i){ var r=i.region||""; return (r==="Москва"||r==="Московская область") ? isExact(i) : true; }
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
 
   function makeLeaflet(){
@@ -339,8 +343,9 @@
     Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
     var list=all.filter(function(i){return on[i.type];});
 
-    lastList=list;
-    if(eng){try{eng.setPins(list.slice(0,400)); if(zoom)eng.fit(list);}catch(e){}}
+    var mapList=list.filter(onMap);
+    lastList=mapList;
+    if(eng){try{eng.setPins(mapList.slice(0,400)); if(zoom)eng.fit(mapList);}catch(e){}}
 
     var box=$("feedlist"); box.textContent="";
     if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
@@ -348,7 +353,7 @@
       var c=document.createElement("article"); c.className="card";
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
         '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+', '+esc(i.region)+'</div>'+
-        '<div class="acts"><button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>'+
+        '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+
         '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
     });
@@ -362,7 +367,7 @@
   }
   $("feedlist").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    var i=byId[b.getAttribute("data-show")]; if(!onMap(i)){setTab("feed");return;} setTab("map");
     setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
@@ -425,7 +430,7 @@
   }
   $("notifyscroll").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    var i=byId[b.getAttribute("data-show")]; if(!onMap(i)){setTab("feed");return;} setTab("map");
     setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
