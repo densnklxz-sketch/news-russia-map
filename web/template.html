@@ -241,6 +241,28 @@
 
   function makeLeaflet(){
     var map=L.map("map",{zoomControl:false,doubleClickZoom:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
+    /* зум одним пальцем, как в Яндекс Картах: двойной тап и, не отпуская, вести вверх/вниз */
+    (function(){
+      var el=map.getContainer(), last=0, lx=0, ly=0, on=false, sy=0, sz=0, pt=null, STEP=55;
+      el.addEventListener("touchstart",function(e){
+        if(e.touches.length!==1){ on=false; return; }
+        var t=e.touches[0], now=Date.now();
+        var skip=e.target.closest&&e.target.closest(".leaflet-marker-icon,.leaflet-control,.zoomctl,.filters,#sheet,a,button");
+        if(!skip && now-last<320 && Math.abs(t.clientX-lx)<40 && Math.abs(t.clientY-ly)<40){
+          on=true; sy=t.clientY; sz=map.getZoom(); pt=map.mouseEventToContainerPoint({clientX:t.clientX,clientY:t.clientY});
+          map.dragging.disable(); e.preventDefault(); e.stopImmediatePropagation(); last=0; return;
+        }
+        last=now; lx=t.clientX; ly=t.clientY;
+      },{passive:false,capture:true});
+      el.addEventListener("touchmove",function(e){
+        if(!on) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        var z=Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),sz+Math.round((e.touches[0].clientY-sy)/STEP)));
+        if(z!==map.getZoom()) map.setZoomAround(pt,z,{animate:false});
+      },{passive:false,capture:true});
+      function end(){ if(on){ on=false; map.dragging.enable(); } }
+      el.addEventListener("touchend",end,true); el.addEventListener("touchcancel",end,true);
+    })();
     map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
     map.fitBounds([[42,27],[68,170]],{animate:false});
 
