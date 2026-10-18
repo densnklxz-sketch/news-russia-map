@@ -52,12 +52,12 @@
 
   /* фильтры */
   .filters{display:flex;flex-direction:column;gap:6px}
-  .frow{display:flex;gap:6px;align-items:flex-start;min-width:0}
+  .frow{display:flex;gap:6px;align-items:center;min-width:0}
   .fbtn{flex:0 0 auto;width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--chip);display:grid;place-items:center;cursor:pointer}
   .fbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
   .fbtn[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
   :root{--ti:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px))}
-  .chips{display:flex;flex-wrap:wrap;flex:1 1 auto;gap:6px;min-width:0}
+  .chips{display:flex;flex-wrap:nowrap;flex:1 1 auto;gap:6px;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;touch-action:pan-x;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 26px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 26px),transparent);padding-right:22px}
   .chips::-webkit-scrollbar{display:none}
   .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--chip);cursor:pointer;font-weight:500;font-size:13px}
   .chip i{width:9px;height:9px;border-radius:50%;background:var(--c)}
@@ -477,7 +477,7 @@
       '<p>Выберите регион и типы событий, затем подпишитесь в чате с ботом: он будет присылать новые происшествия сообщениями.</p>'+
       '<div class="lab">Регион</div><select id="subRegion" aria-label="Регион для уведомлений"><option value="">Вся Россия</option>'+
       regionList.map(function(r){return '<option value="'+esc(r)+'"'+(r===sub.region?" selected":"")+'>'+esc(r)+'</option>';}).join("")+'</select>'+
-      '<div class="lab">Что интересует</div><div class="chips" id="subTypes" style="flex-wrap:wrap;overflow:visible"></div>'+
+      '<div class="lab">Что интересует</div><div class="chips" id="subTypes" style="flex-wrap:wrap;overflow:visible;-webkit-mask-image:none;mask-image:none;padding-right:0"></div>'+
       '<button class="btn primary" type="button" id="subgo">Подписаться в Telegram</button><div id="subnote" role="status"></div>'+
       '<p style="font-size:12px">Нажмите «Start» в чате с ботом. Подтверждение придёт в течение 10–15 минут, дальше бот присылает до 5 новых происшествий за раз. Отписаться: команда /stop в чате с ботом. Канал с новостями: <a data-ext="1" target="_blank" rel="noopener noreferrer" href="https://t.me/nrmpnews" style="color:var(--accent)">t.me/nrmpnews</a></p></div>'+
       '<div class="panel"><h2>Новое с вашего прошлого визита</h2><div id="newlist"></div>'+
