@@ -57,6 +57,9 @@ def tidy(rows):
         if not dup:
             kept.append(r)
             sigs.append(t)
+    for r in kept:
+        if r.get("region") == "За рубежом":
+            r["nomap"] = 1  # другие страны: только в ленте, без точки на карте
     slots = set()
     for r in kept:
         if r.get("region") == "Москва" and DRONE_RE.search((r.get("title") or "") + " " + (r.get("summary") or "")[:200]):

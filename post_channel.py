@@ -58,6 +58,7 @@ TYPES = {
 
 def api(method, payload):
     """Вызов Bot API. Токен в сообщения об ошибках не попадает."""
+    payload = {k: v for k, v in payload.items() if v is not None}  # пустые поля (например, нет кнопки) не отправляем
     try:
         r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", json=payload, timeout=20)
         data = r.json()
@@ -134,6 +135,8 @@ def old_date(title):
 
 
 def where_text(place, region):
+    if region == "За рубежом":
+        return place
     """«Петербург, Санкт-Петербург» -> «Санкт-Петербург»: не повторяем место, если оно уже есть в названии региона."""
     if not region or place == region:
         return place
@@ -204,7 +207,7 @@ def digest(con, now):
     row = con.execute("SELECT v FROM meta WHERE k='last_digest'").fetchone()
     if row and row[0] == day:
         return
-    rows = con.execute("SELECT title, type, region, place FROM incidents WHERE ts >= ? AND region != '' ORDER BY ts DESC",
+    rows = con.execute("SELECT title, type, region, place FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом' ORDER BY ts DESC",
                        (now - 86400,)).fetchall()
     if len(rows) < 10:
         return
@@ -326,6 +329,8 @@ def main():
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
         post_line, post_button = map_for(url)
+        if region == "За рубежом":  # другая страна: на карте точки нет, даём только подписку без ссылки на карту
+            post_line, post_button = '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>', None
         where = where_text(place, region)
         body = excerpt(summary, title)
         if len(body) < 700:
