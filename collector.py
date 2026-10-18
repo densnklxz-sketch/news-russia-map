@@ -39,6 +39,8 @@ if os.path.exists("feeds.txt"):
             name, url = line.strip().split("|", 1)
             FEEDS.append((name.strip(), url.strip()))
 
+import socket
+socket.setdefaulttimeout(20)  # зависшая лента не держит запуск дольше 20 секунд
 MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "3"))  # старые записи из лент не берём
 
 # Правила типов. Первое совпадение выигрывает, порядок важен.
@@ -294,7 +296,11 @@ def run_once():
     con = db()
     added = 0
     for source, feed_url in FEEDS:
-        feed = feedparser.parse(feed_url, agent=USER_AGENT)
+        try:
+            feed = feedparser.parse(feed_url, agent=USER_AGENT)
+        except Exception as ex:  # одна нерабочая лента не должна ронять весь запуск
+            print(f"{source}: ОШИБКА {type(ex).__name__}, пропускаю")
+            continue
         print(f"{source}: {len(feed.entries)} записей")
         for e in feed.entries:
             url = e.get("link")
