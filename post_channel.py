@@ -35,7 +35,7 @@ FRESH = int(os.environ.get("FRESH_HOURS", "6")) * 3600
 HOURS = os.environ.get("POST_HOURS", "8-23")
 CHECK_ONLY = os.environ.get("CHECK_ONLY", "") not in ("", "0", "false")
 SITE_URL = os.environ.get("SITE_URL", "https://news-russia-map.ru/").strip() or "https://news-russia-map.ru/"
-MAP_URL = SITE_URL  # ссылка на карту в постах: сайт (можно переопределить переменной SITE_URL)
+MAP_URL = os.environ.get("MAP_URL", "https://t.me/NewsRussiaMapBot/NewsRussiaMap").strip()  # ссылка на мини-приложение (открывается внутри Telegram)
 MAP_BUTTON = {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": MAP_URL}]]}
 MAP_LINE = ('🗺 Все происшествия на <a href="' + MAP_URL + '">карте</a>\n'
             '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
@@ -44,7 +44,7 @@ MAP_LINE = ('🗺 Все происшествия на <a href="' + MAP_URL + '"
 def map_for(url):
     """Ссылка на карту, открывающая именно эту новость (?p=<crc32 ссылки>). Возвращает (строка_для_текста, кнопка)."""
     code = format(zlib.crc32(url.encode("utf-8")) & 0xFFFFFFFF, "x")
-    link = f"{SITE_URL}{'&' if '?' in SITE_URL else '?'}p={code}"
+    link = f"{MAP_URL}{'&' if '?' in MAP_URL else '?'}startapp={code}"
     line = ('🗺 Все происшествия на <a href="' + html.escape(link, quote=True) + '">карте</a>\n'
             '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>')
     return line, {"inline_keyboard": [[{"text": "🗺 Открыть карту", "url": link}]]}
