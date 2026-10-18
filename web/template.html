@@ -206,8 +206,13 @@
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand();
     try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch(e){}
-    function goFull(){ try { if (tg.requestFullscreen && !tg.isFullscreen && !/^(tdesktop|macos|weba|webk|unknown)$/.test(tg.platform||"")) tg.requestFullscreen(); } catch(e){} }
-    goFull(); setTimeout(goFull,400); setTimeout(goFull,1500);
+    var DESK=/^(tdesktop|macos|weba|webk)$/.test(tg.platform||"");
+    function goFull(){ try {
+      if (DESK) { if (tg.isFullscreen && tg.exitFullscreen) tg.exitFullscreen(); }  /* на ПК полный экран рисуется криво: обычное окно */
+      else if (tg.requestFullscreen && !tg.isFullscreen && tg.platform!=="unknown") tg.requestFullscreen();
+    } catch(e){} }
+    goFull(); setTimeout(goFull,300); setTimeout(goFull,1000); setTimeout(goFull,2500);
+    try { tg.onEvent("fullscreenChanged", function(){ if (DESK) goFull(); }); } catch(e){}
     try { tg.onEvent("fullscreenFailed", function(e){ console.log("fullscreenFailed", e && e.error); }); } catch(e){}
     try { if (tg.lockOrientation) tg.lockOrientation(); } catch(e){} if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
     if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
