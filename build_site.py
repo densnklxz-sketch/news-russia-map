@@ -21,25 +21,11 @@ FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, sourc
 
 
 DRONE_RE = re.compile(r"бпла|беспилот|дрон|пво\b|сбит\w* (?:над|на подлет)", re.I)
-DUP_HOURS = 48
-
-
-def _stems(text):
-    return {w[:4] for w in re.findall(r"[а-яёa-z0-9]{4,}", text.lower().replace("ё", "е"))}
+from dedupe import DUP_HOURS, sig as _sig, is_dup  # повторы одной новости от разных изданий
 
 
 def toks(r):
-    """(основы слов заголовка, основы заголовка и начала анонса): одинаковые события в разных формулировках дают близкие наборы."""
-    t = _stems(r.get("title") or "")
-    return t, t | _stems((r.get("summary") or "")[:200])
-
-
-def is_dup(a, b):
-    ti = len(a[0] & b[0])
-    if ti >= 4 and ti / min(len(a[0]), len(b[0])) >= 0.6:
-        return True
-    fi = len(a[1] & b[1])
-    return fi >= 6 and fi / min(len(a[1]), len(b[1])) >= 0.75
+    return _sig(r.get("title") or "", r.get("summary") or "")
 
 
 def tidy(rows):

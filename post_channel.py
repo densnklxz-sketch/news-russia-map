@@ -368,6 +368,7 @@ def extras(con, now):
 
 
 from foreign import nominative
+from dedupe import DUP_HOURS, sig as _dsig, is_dup as _dis_dup
 
 USE_PHOTO = os.environ.get("USE_PHOTO", "1") not in ("0", "false", "")
 BAD_IMG = re.compile(r"logo|favicon|placeholder|default|noimage|no-image|avatar|sprite|\.svg|\.gif|\.ico", re.I)
@@ -471,6 +472,9 @@ def main():
 
     recent = [r[0] for r in con.execute(
         "SELECT title FROM incidents WHERE posted_at > ?", (now - 86400,))]
+    # уже опубликованные за последние DUP_HOURS часов: та же новость от другого издания второй раз не выходит
+    posted_sigs = [(r[2] or "", _dsig(r[0] or "", r[1] or "")) for r in con.execute(
+        "SELECT title, summary, region FROM incidents WHERE posted_at > ?", (now - DUP_HOURS * 3600,))]
     cands = con.execute(
         "SELECT url, title, type, place, region, summary, img, source FROM incidents "
         "WHERE posted_at IS NULL AND ts >= ? AND title != '' AND place != '' ORDER BY ts DESC LIMIT 60",
@@ -482,7 +486,8 @@ def main():
         if old_date(title):
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # старая новость в свежей ленте
             continue
-        if any(similar(title, t) for t in recent):
+        cur_sig = _dsig(title, summary or "")
+        if any(similar(title, t) for t in recent) or any(rg == (region or "") and _dis_dup(cur_sig, sg) for rg, sg in posted_sigs):
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # дубль чужой новости: не публикуем
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
@@ -519,6 +524,7 @@ def main():
         con.execute("UPDATE incidents SET posted_at=? WHERE url=?", (now, url))
         con.execute("INSERT OR REPLACE INTO meta VALUES('last_post', ?)", (str(now),))
         recent.append(title)
+        posted_sigs.append((region or "", cur_sig))
         sent += 1
         print("Опубликовано:", title[:80])
     con.commit()
