@@ -292,10 +292,11 @@
     map.fitBounds([[42,27],[68,170]],{animate:false});
 
     /* плитки: OpenStreetMap (бесплатно, без ключа); тёмная тема - CSS-фильтром на слое плиток */
-    var tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1}).addTo(map);
+    var tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,maxNativeZoom:18,attribution:"© OpenStreetMap",updateWhenIdle:false,updateWhenZooming:false,updateInterval:80,keepBuffer:5,crossOrigin:true}).addTo(map);
     function setTiles(){
       var el=tiles.getContainer&&tiles.getContainer();
       if(el)el.style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.7)":"";
+      map.getContainer().style.background=isDark()?"#1c1b19":"#e8e6e0";  /* цвет «подложки» совпадает с картой, чтобы непрогруженные квадраты не были чёрными */
     }
     tiles.on("add",setTiles);
     setTiles();
