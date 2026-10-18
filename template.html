@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
@@ -26,7 +26,7 @@
     --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
   }
   *{box-sizing:border-box}
-  html,body{height:100%;margin:0;overflow:hidden}
+  html,body{height:100%;margin:0;overflow:hidden;touch-action:manipulation}
   body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
   button{font:inherit;color:inherit}
   #app{height:100%;display:flex;flex-direction:column}
@@ -78,7 +78,7 @@
   .more{display:block;width:100%;max-width:640px;margin:0 0 12px}
   #subnote{font-size:12px;color:var(--accent);min-height:0}
   select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
-  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px}
+  #view-map .filters{position:absolute;top:calc(8px + var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px}
 
   /* ленты */
   .scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px max(14px,env(safe-area-inset-right,0px)) 18px max(14px,env(safe-area-inset-left,0px))}
@@ -152,8 +152,7 @@
         <select id="period" aria-label="Период">
           <option value="1">За 24 часа</option>
           <option value="3">За 3 дня</option>
-          <option value="7">За 7 дней</option>
-          <option value="30" selected>За 30 дней</option>
+          <option value="5" selected>За 5 дней</option>
         </select>
         <select id="region" aria-label="Регион"><option value="">Вся Россия</option></select>
       </div>
@@ -178,8 +177,12 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 (function(){
+  ["gesturestart","gesturechange","gestureend"].forEach(function(n){document.addEventListener(n,function(e){e.preventDefault();});});
   var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
+  if (tg) { tg.ready(); tg.expand();
+    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch(e){}
+    try { if (tg.requestFullscreen && !tg.isFullscreen && /android|iphone|ipad|ios/i.test(navigator.userAgent)) tg.requestFullscreen(); } catch(e){}
+    try { if (tg.lockOrientation) tg.lockOrientation(); } catch(e){} if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
     if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
 
   var BOT = "NewsRussiaMapBot";
@@ -228,29 +231,24 @@
   }
   function applyMapTheme(){ if(eng){try{eng.theme();}catch(e){}} }
   window.__applyMapTheme=applyMapTheme;
+  /* Подмосковье (Московская область): на карте только события с точным адресом (улица и дом), остальные - только в ленте.
+     Москва и остальные регионы показываются как раньше (неточные пины помечены пунктиром). */
+  function isExact(i){ return !!i.precise && /\d/.test(i.place||""); }
+  function onMap(i){ if(i.nomap) return false; return (i.region||"")==="Московская область" ? isExact(i) : true; }
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
 
   function makeLeaflet(){
-    var map=L.map("map",{zoomControl:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
+    var map=L.map("map",{zoomControl:false,doubleClickZoom:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
     map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
     map.fitBounds([[42,27],[68,170]],{animate:false});
 
-    /* плитки: CARTO (светлая и тёмная версии), при сбое запасной вариант OpenStreetMap */
-    var tiles=null, tilesKey="", failed=0, loaded=0, useOsm=false;
-    function tileSpec(){
-      if(useOsm)return {key:"osm",url:"https://tile.openstreetmap.org/{z}/{x}/{y}.png",o:{}};
-      if(isDark())return {key:"dark",url:"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
-      return {key:"light",url:"https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",o:{subdomains:"abcd"}};
-    }
+    /* плитки: OpenStreetMap (бесплатно, без ключа); тёмная тема - CSS-фильтром на слое плиток */
+    var tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap",updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1}).addTo(map);
     function setTiles(){
-      var sp=tileSpec(); if(sp.key===tilesKey)return; tilesKey=sp.key;
-      if(tiles)map.removeLayer(tiles);
-      var opt={maxZoom:18,attribution:"© OpenStreetMap" + (useOsm?"":", © CARTO"),updateWhenIdle:true,updateWhenZooming:false,keepBuffer:1};
-      for(var k in sp.o)opt[k]=sp.o[k];
-      tiles=L.tileLayer(sp.url,opt).addTo(map);
-      tiles.on("tileload",function(){loaded++;});
-      tiles.on("tileerror",function(){failed++; if(!useOsm&&!loaded&&failed>=6){useOsm=true; setTiles();}});
+      var el=tiles.getContainer&&tiles.getContainer();
+      if(el)el.style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.7)":"";
     }
+    tiles.on("add",setTiles);
     setTiles();
 
     var cluster=L.markerClusterGroup({
@@ -349,8 +347,9 @@
     Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
     var list=all.filter(function(i){return on[i.type];});
 
-    lastList=list;
-    if(eng){try{eng.setPins(list.slice(0,400)); if(zoom)eng.fit(list);}catch(e){}}
+    var mapList=list.filter(onMap);
+    lastList=mapList;
+    if(eng){try{eng.setPins(mapList.slice(0,400)); if(zoom)eng.fit(mapList);}catch(e){}}
 
     var box=$("feedlist"); box.textContent="";
     if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
@@ -358,7 +357,7 @@
       var c=document.createElement("article"); c.className="card";
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
         '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+', '+esc(i.region)+'</div>'+
-        '<div class="acts"><button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>'+
+        '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+
         '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
     });
@@ -372,7 +371,7 @@
   }
   $("feedlist").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    var i=byId[b.getAttribute("data-show")]; if(!onMap(i)){setTab("feed");return;} setTab("map");
     setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
@@ -435,7 +434,7 @@
   }
   $("notifyscroll").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
-    var i=byId[b.getAttribute("data-show")]; setTab("map");
+    var i=byId[b.getAttribute("data-show")]; if(!onMap(i)){setTab("feed");return;} setTab("map");
     setTimeout(function(){goTo(i);showSheet(i,false);},60);
   });
 
@@ -460,6 +459,17 @@
   $("view-map").appendChild($("filters"));
   render(); setTab("map");
   loadMap();
+
+  /* ссылка на конкретную новость: ?p=<crc32 ссылки на источник> (на сайте) или startapp=<тот же код> (в мини-приложении) */
+  (function(){
+    var p=""; try{p=new URLSearchParams(location.search).get("p")||"";}catch(e){}
+    if(!p&&tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param)p=String(tg.initDataUnsafe.start_param);
+    if(!/^[0-9a-f]{1,8}$/.test(p))return;
+    var hit=null; for(var n=0;n<DATA.length;n++){ if(crc32(DATA[n].url||"")===p){hit=DATA[n];break;} }
+    if(!hit)return;
+    if(!onMap(hit)){setTab("feed");return;}
+    setTimeout(function(){goTo(hit);showSheet(hit,false);},250);
+  })();
 })();
 </script>
 </body>
