@@ -41,6 +41,51 @@ if os.path.exists("feeds.txt"):
 
 import socket
 socket.setdefaulttimeout(20)  # зависшая лента не держит запуск дольше 20 секунд
+# Публичные Telegram-каналы без API: файл channels.txt, строки вида  Название|username (без @)
+CHANNELS = []
+if os.path.exists("channels.txt"):
+    for line in open("channels.txt", encoding="utf-8"):
+        if "|" in line and not line.lstrip().startswith("#"):
+            name, user = line.strip().split("|", 1)
+            CHANNELS.append((name.strip(), user.strip().lstrip("@")))
+
+TG_UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
+
+
+def tg_feed(user):
+    """Читает публичную веб-версию канала t.me/s/<канал> и возвращает объект с полем entries."""
+    r = requests.get(f"https://t.me/s/{user}", timeout=20, headers={"User-Agent": TG_UA})
+    r.raise_for_status()
+    out = []
+    for chunk in r.text.split('data-post="')[1:]:
+        post = chunk.split('"', 1)[0]
+        m = re.search(r'tgme_widget_message_text[^>]*>(.*?)</div>', chunk, re.S)
+        if not m or "/" not in post:
+            continue
+        body = re.sub(r"<br\s*/?>", "\n", m.group(1))
+        body = html.unescape(re.sub(r"<[^>]+>", "", body)).strip()
+        lines = [l.strip() for l in body.split("\n") if l.strip()]
+        if not lines or len(body) < 25:
+            continue
+        title = lines[0]
+        if len(title) < 20 and len(lines) > 1:
+            title = title + " " + lines[1]
+        title = re.sub(r"^[^\w«\"(]+", "", title)[:160]
+        t = re.search(r'<time[^>]*datetime="([^"]+)"', chunk)
+        ts = time.time()
+        if t:
+            try:
+                from datetime import datetime
+                ts = datetime.fromisoformat(t.group(1)).timestamp()
+            except ValueError:
+                pass
+        e = feedparser.FeedParserDict(link="https://t.me/" + post, title=title, summary=" ".join(lines)[:1200],
+                                      published_parsed=time.gmtime(ts))
+        # фото из чужих каналов не берём: они защищены авторским правом
+        out.append(e)
+    return type("TgFeed", (), {"entries": out})()
+
+
 MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "3"))  # старые записи из лент не берём
 
 # Правила типов. Первое совпадение выигрывает, порядок важен.
@@ -295,9 +340,9 @@ def clean(s):
 def run_once():
     con = db()
     added = 0
-    for source, feed_url in FEEDS:
+    for source, feed_url in FEEDS + [(n + " (Telegram)", "tg:" + u) for n, u in CHANNELS]:
         try:
-            feed = feedparser.parse(feed_url, agent=USER_AGENT)
+            feed = tg_feed(feed_url[3:]) if feed_url.startswith("tg:") else feedparser.parse(feed_url, agent=USER_AGENT)
         except Exception as ex:  # одна нерабочая лента не должна ронять весь запуск
             print(f"{source}: ОШИБКА {type(ex).__name__}, пропускаю")
             continue
