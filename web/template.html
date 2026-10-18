@@ -67,6 +67,11 @@
   .fx{display:flex;gap:6px;flex-wrap:wrap}
   .zoomctl{position:absolute;right:max(10px,env(safe-area-inset-right,0px));top:50%;transform:translateY(-50%);z-index:700;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--panel);box-shadow:0 2px 10px rgba(0,0,0,.25)}
   .zoomctl[hidden]{display:none}
+  .locbtn{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:18px;z-index:700;width:52px;height:52px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg);box-shadow:0 2px 10px rgba(0,0,0,.3);display:grid;place-items:center;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:bottom .15s}
+  .locbtn svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+  .locbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .locbtn[aria-pressed="true"] svg{fill:currentColor}
+  .sheetopen .locbtn{bottom:196px}
   .zoomctl button{width:44px;height:44px;border:0;background:none;color:var(--fg);font-size:26px;line-height:1;cursor:pointer;display:grid;place-items:center;-webkit-tap-highlight-color:transparent}
   .zoomctl button+button{border-top:1px solid var(--line)}
   .zoomctl button:active{background:var(--chip)}
@@ -145,6 +150,9 @@
         <button type="button" id="zin" aria-label="Приблизить">+</button>
         <button type="button" id="zout" aria-label="Отдалить">−</button>
       </div>
+      <button type="button" id="nearbtn" class="locbtn" aria-pressed="false" aria-label="Рядом со мной" title="Рядом со мной">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.5 3.8 10.6c-.8.3-.7 1.5.1 1.7l6.3 1.7 1.7 6.3c.2.8 1.4.9 1.7.1l7.1-16.7c.3-.7-.5-1.4-1.2-1.2Z"/></svg>
+      </button>
       <div id="sheet" hidden></div>
     </section>
     <section class="view" id="view-feed" aria-label="Лента"><div class="scroll" id="feedscroll"><div id="feedlist"></div></div></section>
@@ -168,7 +176,6 @@
         <div class="quick" id="quick">
           <button class="chip" type="button" data-reg="Москва" style="--c:var(--muted)">Москва</button>
           <button class="chip" type="button" data-reg="Санкт-Петербург" style="--c:var(--muted)">Санкт-Петербург</button>
-          <button class="chip" type="button" id="nearbtn" aria-pressed="false" style="--c:var(--muted)">📍 Рядом со мной</button>
           <button class="chip" type="button" id="hurtbtn" aria-pressed="false" style="--c:var(--muted)">⚠️ С пострадавшими</button>
           <button class="chip" type="button" id="heatbtn" aria-pressed="false" style="--c:var(--muted)">🔥 Тепловая карта</button>
         </div>
@@ -298,7 +305,7 @@
       iconCreateFunction:function(c){return L.divIcon({html:'<div class="clus">'+c.getChildCount()+'</div>',className:"",iconSize:[36,36]});}
     });
     map.addLayer(cluster);
-    var heatL=null;
+    var heatL=null, meL=null;
     map.on("click",hideSheet);
 
     return {
@@ -320,6 +327,10 @@
           m.on("click",function(){showSheet(i,true);});
           return m;
         }));
+      },
+      me:function(p){
+        if(meL){map.removeLayer(meL);meL=null;}
+        if(p)meL=L.circleMarker(p,{radius:8,color:"#fff",weight:3,fillColor:"#2A76CF",fillOpacity:1}).addTo(map);
       },
       heat:function(on,list){
         if(heatL){map.removeLayer(heatL);heatL=null;}
@@ -432,11 +443,11 @@
   $("heatbtn").onclick=function(){heatOn=!heatOn;pressed(this,heatOn);render();};
   $("nearbtn").onclick=function(){
     var b=this;
-    if(nearPos){nearPos=null;pressed(b,false);feedLimit=60;render(true);return;}
+    if(nearPos){nearPos=null;pressed(b,false);if(eng&&eng.me)eng.me(null);feedLimit=60;render(true);return;}
     if(!navigator.geolocation){return;}
     navigator.geolocation.getCurrentPosition(function(p){
       nearPos=[p.coords.latitude,p.coords.longitude]; pressed(b,true); feedLimit=60; render();
-      if(eng){try{eng.goTo({lat:nearPos[0],lon:nearPos[1]});}catch(e){}}
+      if(eng){try{if(eng.me)eng.me(nearPos); eng.goTo({lat:nearPos[0],lon:nearPos[1]});}catch(e){}}
     },function(){ var m="Не удалось определить местоположение. Разрешите доступ к геопозиции."; if(tg&&tg.showAlert)tg.showAlert(m); },{enableHighAccuracy:false,timeout:10000,maximumAge:300000});
   };
   function setRegion(r){var sel=$("region"),ok=false;for(var n=0;n<sel.options.length;n++){if(sel.options[n].value===r)ok=true;} if(!ok&&r)return; sel.value=r; store("nm_viewreg",r); feedLimit=60; render(true); markQuick();}
@@ -456,10 +467,10 @@
       '<div class="txt">'+tag(i)+'<h3>'+esc(i.title)+'</h3><div class="place">'+esc(i.place)+' · '+esc(when(i))+'</div>'+
       '<div class="acts"><button class="btn" type="button" data-share="'+i.id+'">Поделиться</button><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
       '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
-    s.hidden=false; $("sx").onclick=hideSheet;
+    s.hidden=false; $("view-map").classList.add("sheetopen"); $("sx").onclick=hideSheet;
     if(pan&&eng){try{eng.pan(i);}catch(e){}}
   }
-  function hideSheet(){sheetId=null;$("sheet").hidden=true;}
+  function hideSheet(){sheetId=null;$("sheet").hidden=true;$("view-map").classList.remove("sheetopen");}
 
   /* уведомления */
   var sub={region:store("nm_region")||"",types:{}};
