@@ -62,6 +62,12 @@ jobs:
           MIN_GAP_MIN: "25"
           POST_HOURS: "8-23"
           CHECK_ONLY: ${{ inputs.check_only && '1' || '' }}
+          # Дополнительные публикации (можно менять или отключить, поставив -1):
+          WEEKLY_HOUR: "20"          # итоги недели по воскресеньям, час по Москве
+          POLL_HOUR: "19"            # опрос раз в сутки
+          REGION_DIGESTS: ""         # например: "Москва,Санкт-Петербург" — сводки «регион за сутки»
+          REGION_DIGEST_HOUR: "20"
+          PIN_INTRO: "1"             # один раз опубликовать и закрепить приветственный пост
         run: python post_channel.py
 
       - name: Подписки и уведомления
@@ -70,6 +76,8 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           DB_PATH: incidents.db
           MAX_PER_USER: "5"
+          WORKER_URL: ${{ secrets.WORKER_URL }}   # необязательно: Cloudflare Worker для мгновенных ответов бота
+          WORKER_KEY: ${{ secrets.WORKER_KEY }}
         run: python notify_bot.py
 
       - name: Сохранить базу
@@ -82,6 +90,7 @@ jobs:
         env:
           DB_PATH: incidents.db
           SITE_OUT: site/index.html
+          SITE_URL: "https://news-russia-map.ru/"
           YMAPS_KEY: ${{ vars.YMAPS_KEY }}
         run: python build_site.py
 
@@ -91,4 +100,3 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
-
