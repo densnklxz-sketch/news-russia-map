@@ -289,7 +289,10 @@
       el.addEventListener("touchend",end,true); el.addEventListener("touchcancel",end,true);
     })();
     map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
-    map.fitBounds([[42,27],[68,170]],{animate:false});
+    var RU=[[42,27],[68,170]], autoRU=true;
+    map.fitBounds(RU,{animate:false});
+    try{ new ResizeObserver(function(){ map.invalidateSize(); if(autoRU) map.fitBounds(RU,{animate:false}); }).observe(map.getContainer()); }catch(e){}
+    ["mousedown","touchstart","wheel"].forEach(function(n){map.getContainer().addEventListener(n,function(){autoRU=false;},{passive:true,capture:true});});
 
     /* плитки: OpenStreetMap (бесплатно, без ключа); тёмная тема - CSS-фильтром на слое плиток */
     var tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,maxNativeZoom:18,attribution:"© OpenStreetMap",updateWhenIdle:false,updateWhenZooming:false,updateInterval:80,keepBuffer:5,crossOrigin:true}).addTo(map);
@@ -340,13 +343,13 @@
       },
       fit:function(list){
         if(!list.length)return;
-        map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50],animate:false});
+        autoRU=false; map.fitBounds(L.latLngBounds(list.map(function(i){return [i.lat,i.lon];})),{maxZoom:9,padding:[50,50],animate:false});
       },
-      goTo:function(i){map.setView([i.lat,i.lon],Math.max(map.getZoom(),9),{animate:true,duration:.3});},
+      goTo:function(i){autoRU=false; map.setView([i.lat,i.lon],Math.max(map.getZoom(),9),{animate:true,duration:.3});},
       pan:function(i){var p=map.latLngToContainerPoint([i.lat,i.lon]), h=map.getSize().y; if(p.y>h-210)map.panBy([0,p.y-(h-250)]);},
       theme:function(){setTiles();},
       zoom:function(d){if(d>0)map.zoomIn();else map.zoomOut();},
-      resize:function(){map.invalidateSize();}
+      resize:function(){map.invalidateSize(); if(autoRU) map.fitBounds(RU,{animate:false});}
     };
   }
 
