@@ -7,6 +7,13 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <title>Карта происшествий России</title>
+<meta name="description" content="Карта происшествий России: ДТП, пожары, ЧС, аварии и новости регионов за последние дни. Обновляется каждые 10 минут.">
+<meta property="og:title" content="Карта происшествий России">
+<meta property="og:description" content="ДТП, пожары, ЧС и новости регионов на карте. Обновляется каждые 10 минут.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://news-russia-map.ru/">
+<meta name="theme-color" content="#0D141B">
+<link rel="canonical" href="https://news-russia-map.ru/">
 <style>
   :root{
     --bg:#EDF1F4; --panel:#FFFFFF; --glass:rgba(255,255,255,.93); --line:#C9D4DD; --fg:#14202B; --muted:#5A6C7C;
@@ -63,6 +70,8 @@
   .zoomctl button+button{border-top:1px solid var(--line)}
   .zoomctl button:active{background:var(--chip)}
   .fx[hidden]{display:none}
+  .quick{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+  .chip[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
   /* кнопка «свернуть панель фильтров» (только на карте) */
   .fhandle{display:none;position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);height:28px;min-width:48px;padding:0 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel);color:var(--muted);align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:500;cursor:pointer;z-index:2}
   .fhandle::after{content:"";position:absolute;inset:-8px -14px}
@@ -155,6 +164,13 @@
           <option value="5" selected>За 5 дней</option>
         </select>
         <select id="region" aria-label="Регион"><option value="">Вся Россия</option></select>
+        <div class="quick" id="quick">
+          <button class="chip" type="button" data-reg="Москва" style="--c:var(--muted)">Москва</button>
+          <button class="chip" type="button" data-reg="Санкт-Петербург" style="--c:var(--muted)">Санкт-Петербург</button>
+          <button class="chip" type="button" id="nearbtn" aria-pressed="false" style="--c:var(--muted)">📍 Рядом со мной</button>
+          <button class="chip" type="button" id="hurtbtn" aria-pressed="false" style="--c:var(--muted)">⚠️ С пострадавшими</button>
+          <button class="chip" type="button" id="heatbtn" aria-pressed="false" style="--c:var(--muted)">🔥 Тепловая карта</button>
+        </div>
       </div>
     </div>
   </div>
@@ -175,6 +191,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <script>
 (function(){
   ["gesturestart","gesturechange","gestureend"].forEach(function(n){document.addEventListener(n,function(e){e.preventDefault();});});
@@ -280,6 +297,7 @@
       iconCreateFunction:function(c){return L.divIcon({html:'<div class="clus">'+c.getChildCount()+'</div>',className:"",iconSize:[36,36]});}
     });
     map.addLayer(cluster);
+    var heatL=null;
     map.on("click",hideSheet);
 
     return {
@@ -301,6 +319,11 @@
           m.on("click",function(){showSheet(i,true);});
           return m;
         }));
+      },
+      heat:function(on,list){
+        if(heatL){map.removeLayer(heatL);heatL=null;}
+        if(on&&L.heatLayer){ map.removeLayer(cluster); heatL=L.heatLayer(list.map(function(i){return [i.lat,i.lon,.7];}),{radius:24,blur:20,maxZoom:9}).addTo(map); }
+        else if(!map.hasLayer(cluster)) map.addLayer(cluster);
       },
       fit:function(list){
         if(!list.length)return;
@@ -351,14 +374,18 @@
   $("darkbtn").setAttribute("aria-pressed",darkMapPref);
   $("darkbtn").onclick=function(){darkMapPref=!darkMapPref; this.setAttribute("aria-pressed",darkMapPref); store("nm_darkmap",darkMapPref?"1":"0"); applyMapTheme();};
   $("period").onchange=function(){feedLimit=60;render();};
-  $("region").onchange=function(){feedLimit=60;render(true);};
+  $("region").onchange=function(){store("nm_viewreg",this.value);feedLimit=60;render(true);markQuick();};
   var qTimer=null;
   $("q").oninput=function(){clearTimeout(qTimer);qTimer=setTimeout(function(){feedLimit=60;render();},180);};
 
+  var nearPos=null, hurtOn=false, heatOn=false, HURT=/погиб|пострада|ранен|жертв|госпитализ|эвакуир|умер|тела\b|погибш/i;
+  function km(a,b,c,d){var R=6371,p=Math.PI/180,x=(c-a)*p,y=(d-b)*p,h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*p)*Math.cos(c*p)*Math.sin(y/2)*Math.sin(y/2);return 2*R*Math.asin(Math.sqrt(h));}
   function visible(ignoreTypes){
     var lim=Date.now()/1000-(+$("period").value)*86400, reg=$("region").value, q=($("q").value||"").trim().toLowerCase();
     return DATA.filter(function(i){
       if(i.ts<lim||(reg&&i.region!==reg)||!(ignoreTypes||on[i.type]))return false;
+      if(hurtOn&&!HURT.test((i.title||"")+" "+(i.summary||"").slice(0,300)))return false;
+      if(nearPos&&(!onMap(i)||km(nearPos[0],nearPos[1],i.lat,i.lon)>50))return false;
       return !q||((i.title||"")+" "+(i.place||"")+" "+(i.region||"")+" "+(i.summary||"")).toLowerCase().indexOf(q)>=0;
     });
   }
@@ -373,7 +400,7 @@
 
     var mapList=list.filter(onMap);
     lastList=mapList;
-    if(eng){try{eng.setPins(mapList.slice(0,400)); if(zoom)eng.fit(mapList);}catch(e){}}
+    if(eng){try{eng.setPins(mapList.slice(0,400)); if(eng.heat)eng.heat(heatOn,mapList); if(zoom&&!nearPos)eng.fit(mapList);}catch(e){}}
 
     var box=$("feedlist"); box.textContent="";
     if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
@@ -381,7 +408,7 @@
       var c=document.createElement("article"); c.className="card";
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
         '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+(i.region==="За рубежом"?"":', '+esc(i.region))+'</div>'+
-        '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+
+        '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+'<button class="btn" type="button" data-share="'+i.id+'">Поделиться</button>'+
         '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
     });
@@ -393,6 +420,27 @@
     if(sheetId&&!byId[sheetId]) hideSheet();
     badge();
   }
+  function shareItem(i){
+    var link="https://t.me/"+BOT+"/NewsRussiaMap?startapp="+crc32(i.url||"")+"&mode=fullscreen";
+    var u="https://t.me/share/url?url="+encodeURIComponent(link)+"&text="+encodeURIComponent(i.title||"");
+    if(tg&&tg.openTelegramLink)tg.openTelegramLink(u); else window.open(u,"_blank");
+  }
+  document.addEventListener("click",function(e){var b=e.target.closest&&e.target.closest("[data-share]"); if(b&&byId[b.getAttribute("data-share")])shareItem(byId[b.getAttribute("data-share")]);});
+  function pressed(el,v){el.setAttribute("aria-pressed",v?"true":"false");}
+  $("hurtbtn").onclick=function(){hurtOn=!hurtOn;pressed(this,hurtOn);feedLimit=60;render();};
+  $("heatbtn").onclick=function(){heatOn=!heatOn;pressed(this,heatOn);render();};
+  $("nearbtn").onclick=function(){
+    var b=this;
+    if(nearPos){nearPos=null;pressed(b,false);feedLimit=60;render(true);return;}
+    if(!navigator.geolocation){return;}
+    navigator.geolocation.getCurrentPosition(function(p){
+      nearPos=[p.coords.latitude,p.coords.longitude]; pressed(b,true); feedLimit=60; render();
+      if(eng){try{eng.goTo({lat:nearPos[0],lon:nearPos[1]});}catch(e){}}
+    },function(){ var m="Не удалось определить местоположение. Разрешите доступ к геопозиции."; if(tg&&tg.showAlert)tg.showAlert(m); },{enableHighAccuracy:false,timeout:10000,maximumAge:300000});
+  };
+  function setRegion(r){var sel=$("region"),ok=false;for(var n=0;n<sel.options.length;n++){if(sel.options[n].value===r)ok=true;} if(!ok&&r)return; sel.value=r; store("nm_viewreg",r); feedLimit=60; render(true); markQuick();}
+  function markQuick(){var r=$("region").value; Array.prototype.forEach.call(document.querySelectorAll("#quick [data-reg]"),function(b){pressed(b,b.getAttribute("data-reg")===r);});}
+  $("quick").addEventListener("click",function(e){var b=e.target.closest("[data-reg]"); if(!b)return; var r=b.getAttribute("data-reg"); setRegion($("region").value===r?"":r);});
   $("feedlist").addEventListener("click",function(e){
     var b=e.target.closest("[data-show]"); if(!b)return;
     var i=byId[b.getAttribute("data-show")]; if(!onMap(i)){setTab("feed");return;} setTab("map");
@@ -405,7 +453,7 @@
     sheetId=i.id; var s=$("sheet");
     s.innerHTML=(i.img&&/^https:\/\//.test(i.img)?'<div class="thumb"><img data-pic="1" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'"></div>':'')+
       '<div class="txt">'+tag(i)+'<h3>'+esc(i.title)+'</h3><div class="place">'+esc(i.place)+' · '+esc(when(i))+'</div>'+
-      '<div class="acts"><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
+      '<div class="acts"><button class="btn" type="button" data-share="'+i.id+'">Поделиться</button><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
       '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
     s.hidden=false; $("sx").onclick=hideSheet;
     if(pan&&eng){try{eng.pan(i);}catch(e){}}
@@ -481,6 +529,12 @@
   window.addEventListener("resize",function(){if(eng&&eng.resize){try{eng.resize();}catch(e){}}});
 
   $("view-map").appendChild($("filters"));
+  (function(){ /* запоминаем регион, выбранный в прошлый раз (если не открыли ссылку на конкретную новость) */
+    var deep=/[?&]p=/.test(location.search)||!!(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param);
+    var r=store("nm_viewreg")||""; if(deep||!r)return;
+    var sel=$("region"); for(var n=0;n<sel.options.length;n++){ if(sel.options[n].value===r){sel.value=r;break;} }
+  })();
+  markQuick();
   render(); setTab("map");
   loadMap();
 
