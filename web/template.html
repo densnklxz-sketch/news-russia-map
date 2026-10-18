@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
@@ -26,7 +26,7 @@
     --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; color-scheme:dark;
   }
   *{box-sizing:border-box}
-  html,body{height:100%;margin:0;overflow:hidden}
+  html,body{height:100%;margin:0;overflow:hidden;touch-action:manipulation}
   body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
   button{font:inherit;color:inherit}
   #app{height:100%;display:flex;flex-direction:column}
@@ -78,7 +78,7 @@
   .more{display:block;width:100%;max-width:640px;margin:0 0 12px}
   #subnote{font-size:12px;color:var(--accent);min-height:0}
   select{flex:1 1 0;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:13px}
-  #view-map .filters{position:absolute;top:8px;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px}
+  #view-map .filters{position:absolute;top:calc(8px + var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px}
 
   /* ленты */
   .scroll{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px max(14px,env(safe-area-inset-right,0px)) 18px max(14px,env(safe-area-inset-left,0px))}
@@ -177,8 +177,14 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 (function(){
+  ["gesturestart","gesturechange","gestureend"].forEach(function(n){document.addEventListener(n,function(e){e.preventDefault();});});
   var tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
+  if (tg) { tg.ready(); tg.expand();
+    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch(e){}
+    function goFull(){ try { if (tg.requestFullscreen && !tg.isFullscreen && !/^(tdesktop|macos|weba|webk|unknown)$/.test(tg.platform||"")) tg.requestFullscreen(); } catch(e){} }
+    goFull(); setTimeout(goFull,400); setTimeout(goFull,1500);
+    try { tg.onEvent("fullscreenFailed", function(e){ console.log("fullscreenFailed", e && e.error); }); } catch(e){}
+    try { if (tg.lockOrientation) tg.lockOrientation(); } catch(e){} if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
     if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
 
   var BOT = "NewsRussiaMapBot";
@@ -234,7 +240,7 @@
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
 
   function makeLeaflet(){
-    var map=L.map("map",{zoomControl:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
+    var map=L.map("map",{zoomControl:false,doubleClickZoom:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
     map.attributionControl.setPrefix(false); map.attributionControl.setPosition("bottomleft");
     map.fitBounds([[42,27],[68,170]],{animate:false});
 
@@ -455,6 +461,17 @@
   $("view-map").appendChild($("filters"));
   render(); setTab("map");
   loadMap();
+
+  /* ссылка на конкретную новость: ?p=<crc32 ссылки на источник> (на сайте) или startapp=<тот же код> (в мини-приложении) */
+  (function(){
+    var p=""; try{p=new URLSearchParams(location.search).get("p")||"";}catch(e){}
+    if(!p&&tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param)p=String(tg.initDataUnsafe.start_param);
+    if(!/^[0-9a-f]{1,8}$/.test(p))return;
+    var hit=null; for(var n=0;n<DATA.length;n++){ if(crc32(DATA[n].url||"")===p){hit=DATA[n];break;} }
+    if(!hit)return;
+    if(!onMap(hit)){setTab("feed");return;}
+    setTimeout(function(){goTo(hit);showSheet(hit,false);},250);
+  })();
 })();
 </script>
 </body>
