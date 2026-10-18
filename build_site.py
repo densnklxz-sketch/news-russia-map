@@ -81,7 +81,7 @@ def build():
     con.close()
     n0 = len(rows)
     rows = tidy(rows)
-    print(f"повторов убрано: {n0 - len(rows)}; беспилотники в Москве скрыты с карты: {sum(1 for r in rows if r.get('nomap'))}")
+    print(f"повторов убрано: {n0 - len(rows)}; скрыто с карты (БПЛА в Москве и другие страны): {sum(1 for r in rows if r.get('nomap'))}")
     for r in rows:
         if not r.get("img"):
             r.pop("img", None)
@@ -89,6 +89,19 @@ def build():
     # "</" внутри <script> ломает разметку, поэтому экранируем
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     html = html.replace("__DATA__", data)
+    # Текстовая версия для поисковиков и тех, у кого не работает JavaScript: последние заголовки
+    import html as _h
+    site = os.environ.get("SITE_URL", "https://news-russia-map.ru/").strip() or "https://news-russia-map.ru/"
+    items = "".join('<li><a href="%s">%s</a> — %s</li>' % (_h.escape(r["url"], quote=True), _h.escape(r["title"]), _h.escape(r.get("place") or ""))
+                    for r in rows[:40])
+    seo = '<noscript><h1>Карта происшествий России</h1><p>ДТП, пожары, ЧС и новости регионов. Последние события:</p><ul>%s</ul></noscript>' % items
+    html = html.replace("</body>", seo + "\n</body>", 1)
+    outdir = os.path.dirname(OUT) or "."
+    os.makedirs(outdir, exist_ok=True)
+    open(os.path.join(outdir, "robots.txt"), "w", encoding="utf-8").write("User-agent: *\nAllow: /\nSitemap: %ssitemap.xml\n" % site)
+    open(os.path.join(outdir, "sitemap.xml"), "w", encoding="utf-8").write(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<url><loc>%s</loc><lastmod>%s</lastmod><changefreq>always</changefreq></url></urlset>\n' % (site, time.strftime("%Y-%m-%d", time.gmtime())))
     key = os.environ.get("YMAPS_KEY", "").strip()
     html = html.replace("__BUILD__", time.strftime("%d.%m %H:%M UTC", time.gmtime()))
     html = html.replace("__YMAPS_KEY__", key)  # ключ Яндекс Карт (виден в коде страницы, защищается ограничением по домену)

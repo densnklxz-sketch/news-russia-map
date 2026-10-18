@@ -230,6 +230,143 @@ def digest(con, now):
         print("Опубликована сводка дня.")
 
 
+# ---- Дополнительные регулярные публикации (каждая не чаще раза в сутки/неделю, всё в окне POST_HOURS) ----
+WEEKLY_HOUR = int(os.environ.get("WEEKLY_HOUR", "20"))        # воскресенье, час по Москве; -1 отключает
+POLL_HOUR = int(os.environ.get("POLL_HOUR", "19"))            # опрос раз в сутки; -1 отключает
+REGION_DIGESTS = [x.strip() for x in os.environ.get("REGION_DIGESTS", "").split(",") if x.strip()]  # например: Москва,Санкт-Петербург
+REGION_DIGEST_HOUR = int(os.environ.get("REGION_DIGEST_HOUR", "20"))
+PIN_INTRO = os.environ.get("PIN_INTRO", "1") not in ("", "0", "false")
+POLLS = [
+    ("Какие события вам важнее всего видеть в ленте?", ["ДТП", "Пожары", "ЧС и погода", "Атаки и обстрелы"]),
+    ("Как часто вы заглядываете на карту?", ["Несколько раз в день", "Раз в день", "Раз в несколько дней", "Впервые"]),
+    ("Что добавить на карту в первую очередь?", ["Больше регионов", "Фото с места", "Уведомления по району", "Видео"]),
+    ("Чем вы пользуетесь для новостей о происшествиях?", ["Карта и канал", "Только канал", "Телеграм-чаты", "Сайты СМИ"]),
+]
+
+
+def _meta_get(con, k):
+    row = con.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+    return row[0] if row else None
+
+
+def _meta_set(con, k, v):
+    con.execute("INSERT OR REPLACE INTO meta VALUES(?, ?)", (k, v))
+    con.commit()
+
+
+def weekly(con, now):
+    """Итоги недели по воскресеньям."""
+    msk = time.gmtime(now + 3 * 3600)
+    if WEEKLY_HOUR < 0 or msk.tm_wday != 6 or msk.tm_hour != WEEKLY_HOUR:
+        return
+    day = time.strftime("%Y-%m-%d", msk)
+    if _meta_get(con, "last_weekly") == day:
+        return
+    rows = con.execute("SELECT type, region, ts FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом'",
+                       (now - 7 * 86400,)).fetchall()
+    if len(rows) < 30:
+        return
+    by_type, by_reg, by_day = {}, {}, {}
+    for typ, region, ts in rows:
+        by_type[typ] = by_type.get(typ, 0) + 1
+        by_reg[region] = by_reg.get(region, 0) + 1
+        d = time.strftime("%d.%m", time.gmtime(ts + 3 * 3600))
+        by_day[d] = by_day.get(d, 0) + 1
+    lines = ["📈 <b>Итоги недели</b>", f"За 7 дней на карте {len(rows)} происшествий.", ""]
+    for k, n in sorted(by_type.items(), key=lambda x: -x[1]):
+        em, label = TYPES.get(k, TYPES["tech"])
+        lines.append(f"{em} {label}: {n}")
+    top = sorted(by_reg.items(), key=lambda x: -x[1])[:5]
+    lines += ["", "<b>Больше всего событий:</b>"] + [f"📍 {html.escape(r)}: {n}" for r, n in top]
+    d, n = max(by_day.items(), key=lambda x: x[1])
+    lines += ["", f"Самый насыщенный день: {d} ({n}).", "", MAP_LINE]
+    if api("sendMessage", {"chat_id": CHANNEL, "text": "\n".join(lines), "parse_mode": "HTML",
+                           "disable_web_page_preview": True, "reply_markup": MAP_BUTTON}) is not None:
+        _meta_set(con, "last_weekly", day)
+        print("Опубликованы итоги недели.")
+
+
+def region_digests(con, now):
+    """Сводка «<регион> за сутки» для регионов из REGION_DIGESTS."""
+    msk = time.gmtime(now + 3 * 3600)
+    if not REGION_DIGESTS or REGION_DIGEST_HOUR < 0 or msk.tm_hour != REGION_DIGEST_HOUR:
+        return
+    day = time.strftime("%Y-%m-%d", msk)
+    for region in REGION_DIGESTS:
+        key = "rd_" + region
+        if _meta_get(con, key) == day:
+            continue
+        rows = con.execute("SELECT title, type, place FROM incidents WHERE ts >= ? AND region = ? ORDER BY ts DESC",
+                           (now - 86400, region)).fetchall()
+        if len(rows) < 3:
+            continue
+        picked = []
+        for title, typ, place in rows:
+            if any(similar(title, t) for _, t, _ in picked):
+                continue
+            picked.append((typ, title, place))
+            if len(picked) >= 6:
+                break
+        lines = [f"📍 <b>{html.escape(region)} за сутки</b>", f"Событий на карте: {len(rows)}.", ""]
+        for typ, title, place in picked:
+            em, _ = TYPES.get(typ, TYPES["tech"])
+            lines.append(f"{em} {html.escape(title)}")
+        lines += ["", MAP_LINE]
+        if api("sendMessage", {"chat_id": CHANNEL, "text": "\n".join(lines), "parse_mode": "HTML",
+                               "disable_web_page_preview": True, "reply_markup": MAP_BUTTON}) is not None:
+            _meta_set(con, key, day)
+            print(f"Опубликована сводка: {region}.")
+
+
+def daily_poll(con, now):
+    """Опрос раз в сутки (вопросы по кругу)."""
+    msk = time.gmtime(now + 3 * 3600)
+    if POLL_HOUR < 0 or msk.tm_hour != POLL_HOUR:
+        return
+    day = time.strftime("%Y-%m-%d", msk)
+    if _meta_get(con, "last_poll") == day:
+        return
+    q, opts = POLLS[msk.tm_yday % len(POLLS)]
+    if api("sendPoll", {"chat_id": CHANNEL, "question": q, "options": opts, "is_anonymous": True}) is not None:
+        _meta_set(con, "last_poll", day)
+        print("Опубликован опрос.")
+
+
+INTRO = ("🗺 <b>Карта происшествий России</b>\n\n"
+         "Новости о ДТП, пожарах, ЧС и авариях по всей стране: коротко, со ссылкой на источник и точкой на карте.\n\n"
+         "• Откройте карту и смотрите, что происходит рядом\n"
+         "• Подпишитесь на уведомления по своему региону\n"
+         "• Итоги дня и недели в канале\n\n"
+         + MAP_LINE)
+
+
+def pin_intro(con):
+    """Один раз публикует и закрепляет приветственный пост."""
+    if not PIN_INTRO or _meta_get(con, "intro_pinned"):
+        return
+    res = api("sendMessage", {"chat_id": CHANNEL, "text": INTRO, "parse_mode": "HTML",
+                              "disable_web_page_preview": True, "reply_markup": MAP_BUTTON})
+    if res is None:
+        return
+    _meta_set(con, "intro_pinned", "1")
+    if api("pinChatMessage", {"chat_id": CHANNEL, "message_id": res["message_id"], "disable_notification": True}) is None:
+        print("Приветственный пост опубликован, но закрепить не удалось: дайте боту право «Закреплять сообщения».")
+    else:
+        print("Приветственный пост закреплён.")
+
+
+def extras(con, now):
+    for fn in (weekly, region_digests, daily_poll):
+        try:
+            fn(con, now)
+        except Exception as e:
+            print(f"  {fn.__name__}: сбой ({type(e).__name__})")
+    try:
+        pin_intro(con)
+    except Exception as e:
+        print(f"  pin_intro: сбой ({type(e).__name__})")
+
+
 USE_PHOTO = os.environ.get("USE_PHOTO", "1") not in ("0", "false", "")
 BAD_IMG = re.compile(r"logo|favicon|placeholder|default|noimage|no-image|avatar|sprite|\.svg|\.gif|\.ico", re.I)
 
@@ -251,6 +388,24 @@ def good_photo(img):
     if 0 < size < 15000 or size > 8_000_000:
         return ""
     return img
+
+
+def page_image(url):
+    """Запасная картинка: og:image со страницы новости, если в ленте фото не было."""
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (compatible; NRMPBot/1.0)"})
+        head = r.text[:150000]
+    except Exception:
+        return ""
+    for pat in (r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']'):
+        m = re.search(pat, head, re.I)
+        if m:
+            u = html.unescape(m.group(1)).strip()
+            if u.startswith("//"):
+                u = "https:" + u
+            return u if u.startswith("http") else ""
+    return ""
 
 
 SOURCE_LINK = os.environ.get("SOURCE_LINK", "0") not in ("", "0", "false")  # 1 = ссылка на самом заголовке
@@ -305,6 +460,7 @@ def main():
     con.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
     now = int(time.time())
     digest(con, now)
+    extras(con, now)
     row = con.execute("SELECT v FROM meta WHERE k='last_post'").fetchone()
     last = int(row[0]) if row else 0
     if now - last < MIN_GAP:
@@ -342,6 +498,8 @@ def main():
                 + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
         res = None
         photo = good_photo(img) if USE_PHOTO else ""
+        if USE_PHOTO and not photo:
+            photo = good_photo(page_image(url))  # в ленте фото нет: пробуем картинку со страницы новости
         if photo:
             cap = text
             if len(cap) > 1000:  # лимит подписи к фото 1024: укорачиваем выдержку

@@ -317,6 +317,7 @@ def run_once():
             where = locate(con, text)
             fp = foreign_place(title, text)
             if fp:
+                print("  за рубежом:", fp, "|", title[:70])
                 where = (0.0, 0.0, FOREIGN_REGION, fp, 0)  # другая страна: только лента и канал, без точки на карте
             if not where:
                 print("  нет места:", title[:70])
