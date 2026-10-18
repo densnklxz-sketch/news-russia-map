@@ -311,6 +311,132 @@ def classify(text):
     return None
 
 
+# ---- малые города, посёлки и сёла: поиск через Nominatim с учётом склонений и области из текста ----
+GEO_BUDGET = int(os.environ.get("GEO_BUDGET", "70"))  # новых запросов к геокодеру за один запуск (результаты кэшируются)
+_geo_used = 0
+SETTLE_TYPES = {"city", "town", "village", "hamlet", "suburb", "locality", "isolated_dwelling", "neighbourhood", "quarter"}
+SETTLE_RE = re.compile(
+    r"(?:(?i:\b(?:в|во|на|под|около|возле|близ|вблизи|рядом с|недалеко от|в районе)\s+"
+    r"(?:(?:селе|села|селу|посёлке|поселке|посёлка|поселка|деревне|деревни|городе|города|станице|станицы|хуторе|хутора|ауле|пгт|микрорайоне)\s+)?)"
+    r"|(?i:\b(?:с|д|г|п|ст|х|пос)\.\s*)|(?i:\b(?:село|села|селе|селу|посёлок|посёлка|посёлке|поселок|поселка|поселке|деревня|деревни|деревне|город|города|городе|станица|станицы|станице|хутор|хутора|хуторе|аул|аула|ауле|пгт)\s+))"
+    r"([А-ЯЁ][а-яё]+(?:-[А-ЯЁа-яё][а-яё]+)?(?:\s[А-ЯЁ][а-яё]+)?)")
+ADJ_REGION = re.compile(r"(ск|цк)(ой|ая|ий|ую|их|им|ом|ое)$")
+AREA_WORD = re.compile(r"\s*(област|кра[йяеюи]|округ|республик|район|р-н)", re.I)
+STOPCAP = {"России", "Россия", "Российской", "Украине", "Украины", "Белоруссии", "Европе", "Азии", "Сибири", "Подмосковье", "Подмосковья",
+           "Телеграм", "Минобороны", "Москвы", "Москве", "Петербурге", "Петербурга", "Интернете", "Крыму", "Крыма"}
+_HINT_REPUBLICS = ("Татарстан", "Башкортостан", "Башкири", "Дагестан", "Чечн", "Крым", "Бурят", "Якут", "Калмык", "Хакас", "Ингуш",
+                   "Адыге", "Мордови", "Удмурт", "Чуваш", "Марий", "Карели", "Осети", "Кабардино", "Карачаево")
+
+
+def region_hint(text):
+    """Область/край/республика, названные в тексте, или None."""
+    for rx, reg, lat, lon in REG_RE:
+        m = rx.search(text)
+        if not m:
+            continue
+        g = m.group(0)
+        if re.search(r"област|кра[йяеюи]|округ|республик", g, re.I) or g.startswith(_HINT_REPUBLICS):
+            return reg
+    return None
+
+
+def name_variants(c):
+    """Возможные именительные формы названия из текста (в Махачкале -> Махачкала и т.п.), без внешних библиотек."""
+    ws = c.split()
+    def tails(w, last):
+        out = [w]
+        rules = (("ах", "и"), ("ах", "ы"), ("ях", "и"), ("ом", ""), ("ом", "о"), ("ом", "ое"), ("ом", "ый"), ("ом", "ий"), ("ем", ""),
+                 ("ой", "а"), ("ой", "ая"), ("ей", "яя"), ("ью", "ь"), ("е", ""), ("е", "а"), ("е", "о"), ("и", "ь"), ("и", "я"), ("ы", "а"),
+                 ("а", ""), ("а", "о"), ("у", "а"), ("у", ""), ("я", "ь"), ("я", "й"))
+        for old, add in rules:
+            if w.endswith(old) and len(w) - len(old) >= 3:
+                f = w[:-len(old)] + add
+                if f not in out:
+                    out.append(f)
+        return out if last else out[:6]
+    def head_forms(w):
+        out = []
+        for old, adds in (("ой", ("ая",)), ("ей", ("яя",)), ("ом", ("ый", "ое")), ("ем", ("ий",)), ("ого", ("ий", "ый")), ("ую", ("ая",))):
+            if w.endswith(old):
+                out += [w[:-len(old)] + a for a in adds]
+        return out + [w]
+    last_forms = tails(ws[-1], True)
+    res = []
+    for lf in last_forms:
+        if len(ws) == 1:
+            res.append(lf)
+        else:
+            for hf in head_forms(ws[0])[:3]:
+                res.append(hf + " " + lf)
+    uniq = []
+    for r in res:
+        if r not in uniq:
+            uniq.append(r)
+    return uniq[:7]
+
+
+def geocode_place(con, name, hint):
+    """Населённый пункт name (возможно с областью hint) -> (lat, lon, region) или None. Только населённые пункты."""
+    global _geo_used, _last_geocode
+    key = "pl:" + name + "|" + (hint or "")
+    row = con.execute("SELECT lat, lon, region FROM geocache WHERE q=?", (key,)).fetchone()
+    if row:
+        return row if row[0] is not None else None
+    if _geo_used >= GEO_BUDGET:
+        return None
+    _geo_used += 1
+    result = None
+    try:
+        wait = 1.1 - (time.time() - _last_geocode)
+        if wait > 0:
+            time.sleep(wait)
+        _last_geocode = time.time()
+        r = requests.get("https://nominatim.openstreetmap.org/search", timeout=15, headers={"User-Agent": USER_AGENT},
+                         params={"q": name + (", " + hint if hint else ""), "format": "jsonv2", "countrycodes": "ru", "limit": 3,
+                                 "accept-language": "ru", "addressdetails": 1})
+        for d in r.json():
+            if d.get("type") not in SETTLE_TYPES and d.get("addresstype") not in SETTLE_TYPES:
+                continue
+            state = (d.get("address") or {}).get("state", "")
+            if hint and max(hint.split(), key=len)[:6].lower() not in state.lower():
+                continue
+            canon = next((reg for rx, reg, _la, _lo in REG_RE if rx.search(state)), state)
+            result = (float(d["lat"]), float(d["lon"]), hint or canon)
+            break
+    except Exception as e:
+        print("  геокодер (нас. пункт):", e, file=sys.stderr)
+        return None
+    con.execute("INSERT OR REPLACE INTO geocache VALUES(?,?,?,?)", (key, *(result if result else (None, None, None))))
+    con.commit()
+    return result
+
+
+def find_small_town(con, text):
+    hint = region_hint(text)
+    seen = set()
+    n = 0
+    for m in SETTLE_RE.finditer(text):
+        words = m.group(1).split()
+        cands = [" ".join(words)] if len(words) == 2 and not ADJ_REGION.search(words[1]) else []
+        cands.append(words[0])
+        for c in cands:
+            first = c.split()[0]
+            if c in seen or first in STOPCAP or len(first) < 4:
+                continue
+            seen.add(c)
+            if ADJ_REGION.search(first) and AREA_WORD.match(text[m.end():m.end() + 14]):
+                continue  # это название области или района, а не города
+            n += 1
+            if n > 3:
+                return None
+            for v in name_variants(c):
+                hit = geocode_place(con, v, hint)
+                if hit:
+                    return hit[0], hit[1], hit[2], v, 0
+    return None
+
+
+
 def locate(con, text):
     """Вернуть (lat, lon, region, place, precise) или None."""
     street = STREET_RE.search(text)
@@ -322,6 +448,9 @@ def locate(con, text):
     if city:
         lat, lon, region = GAZETTEER[city]
         return lat, lon, region, city, 0
+    small = find_small_town(con, text)
+    if small:
+        return small
     for rx, reg, lat, lon in REG_RE:
         # регион засчитываем, только если рядом слово "область/край/республика" или предлог места
         if re.search(r"\b(?:в|во|на|по|над|из|юге|севере|западе|востоке)\s+" + rx.pattern, text, re.I):
