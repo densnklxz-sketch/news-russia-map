@@ -15,6 +15,8 @@ DB_PATH = os.environ.get("DB_PATH", "incidents.db")
 OUT = os.environ.get("SITE_OUT", "/var/www/incident-map/index.html")
 DAYS = int(os.environ.get("SITE_DAYS", "5"))
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "template.html")
+from foreign import nominative
+
 FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img"
 
 
@@ -59,6 +61,7 @@ def tidy(rows):
             sigs.append(t)
     for r in kept:
         if r.get("region") == "За рубежом":
+            r["place"] = nominative(r.get("place") or "")
             r["nomap"] = 1  # другие страны: только в ленте, без точки на карте
     slots = set()
     for r in kept:

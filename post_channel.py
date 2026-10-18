@@ -136,7 +136,7 @@ def old_date(title):
 
 def where_text(place, region):
     if region == "За рубежом":
-        return place
+        return nominative(place)
     """«Петербург, Санкт-Петербург» -> «Санкт-Петербург»: не повторяем место, если оно уже есть в названии региона."""
     if not region or place == region:
         return place
@@ -366,6 +366,8 @@ def extras(con, now):
     except Exception as e:
         print(f"  pin_intro: сбой ({type(e).__name__})")
 
+
+from foreign import nominative
 
 USE_PHOTO = os.environ.get("USE_PHOTO", "1") not in ("0", "false", "")
 BAD_IMG = re.compile(r"logo|favicon|placeholder|default|noimage|no-image|avatar|sprite|\.svg|\.gif|\.ico", re.I)
