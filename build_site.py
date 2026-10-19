@@ -28,6 +28,29 @@ def toks(r):
     return _sig(r.get("title") or "", r.get("summary") or "")
 
 
+MIL_MAP_HOURS = int(os.environ.get("MIL_MAP_HOURS", "24"))  # сколько часов метки атак и обстрелов живут на карте
+
+
+# Атаки и обстрелы на карте: только значимые (пострадавшие, ущерб, инфраструктура), не больше N на регион. В ленте остаются все.
+MIL_MIN_SCORE = int(os.environ.get("MIL_MIN_SCORE", "2"))
+MIL_PER_REGION = int(os.environ.get("MIL_PER_REGION", "3"))
+_MIL_W = [
+    (3, re.compile(r"погиб|убит|ранен|ранил|пострада|жертв|тяжел\w+ состоя", re.I)),
+    (2, re.compile(r"пожар|возгоран|загорел|повре[жд]|разруш|обруш|попадан|прилёт|прилет|взрыв|упал\w*|обломк|выбит\w+ стекл", re.I)),
+    (2, re.compile(r"НПЗ|нефтебаз|подстанц|ТЭЦ|электроснабж|без (света|воды|тепла|отопления)|аэропорт|завод|порт\b|мост|склад|терминал|энергетик|логистическ", re.I)),
+    (1, re.compile(r"эвакуир|эвакуац|многоквартир|жил\w+ дом|школ|больниц|детск\w+ сад", re.I)),
+]
+_MIL_ROUTINE = re.compile(r"(сбит\w*|сбили|уничтожен\w*|уничтожили|перехвачен\w*|отражен\w*)\s", re.I)
+
+
+def mil_score(r):
+    t = (r.get("title") or "") + " " + (r.get("summary") or "")[:300]
+    sc = sum(w for w, rx in _MIL_W if rx.search(t))
+    if sc == 0 and _MIL_ROUTINE.search(t):
+        sc = -1  # сводка «сбито N беспилотников» без последствий
+    return sc
+
+
 def tidy(rows):
     """1) убираем повторы одной новости другими словами (оставляем самую раннюю);
     2) новости про беспилотники в Москве: на карте не больше двух за сутки (по одной на утро и на день/вечер), остальные только в ленте."""
@@ -46,11 +69,24 @@ def tidy(rows):
             kept.append(r)
             sigs.append(t)
     for r in kept:
+        if r.get("type") == "mil" and time.time() - r["ts"] > MIL_MAP_HOURS * 3600:
+            r["nomap"] = 1  # атаки и обстрелы держим на карте сутки, дальше только в ленте
         if r.get("type") == "law":
             r["nomap"] = 1  # рубрика «Решения и законы»: только лента и канал
         if r.get("region") == "За рубежом":
             r["place"] = nominative(r.get("place") or "")
             r["nomap"] = 1  # другие страны: только в ленте, без точки на карте
+    mil = [r for r in kept if r.get("type") == "mil" and not r.get("nomap")]
+    by_reg = {}
+    for r in mil:
+        if mil_score(r) < MIL_MIN_SCORE:
+            r["nomap"] = 1  # мелкие и сводные атаки: только в ленте
+        else:
+            by_reg.setdefault(r.get("region") or "", []).append(r)
+    for lst in by_reg.values():
+        lst.sort(key=lambda r: (-mil_score(r), -r["ts"]))
+        for r in lst[MIL_PER_REGION:]:
+            r["nomap"] = 1  # в регионе на карте только самые значимые
     slots = set()
     for r in kept:
         if r.get("region") == "Москва" and DRONE_RE.search((r.get("title") or "") + " " + (r.get("summary") or "")[:200]):
