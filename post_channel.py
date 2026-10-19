@@ -17,6 +17,7 @@
   CHECK_ONLY=1   только проверить токен и права бота, ничего не публиковать
 """
 import html
+import json
 import os
 import re
 import sqlite3
@@ -100,7 +101,7 @@ def similar(a, b):
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.55
 
 
-def excerpt(summary, title, limit=1200):
+def excerpt(summary, title, limit=1800):
     """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
     t = re.sub(r"\s+", " ", summary or "").strip()
     # режем всё, что похоже на код и рекламную «подвал» страницы
@@ -165,12 +166,22 @@ def fetch_lead(url):
     try:
         r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (compatible; NRMPBot/1.0)"})
         r.encoding = r.apparent_encoding if not r.encoding or r.encoding.lower() == "iso-8859-1" else r.encoding
-        page = r.text[:400000]
+        raw = r.text[:600000]
+        page = raw
         page = re.sub(r"(?is)<(script|style|noscript|nav|footer|aside|form|iframe|svg|header)\b.*?</\1>", " ", page)
         page = re.sub(r"(?s)<!--.*?-->", " ", page)
     except Exception:
         return ""
     parts = []
+    # многие сайты кладут текст статьи в разметку JSON-LD (articleBody): берём его в первую очередь
+    try:
+        m = re.search(r'"articleBody"\s*:\s*"((?:[^"\\]|\\.)*)"', raw)
+        if m:
+            body = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", json.loads('"' + m.group(1) + '"')))).strip()
+            if len(body) >= 120 and clean_text(body):
+                parts.append(body[:2200])
+    except Exception:
+        pass
     for pat in (r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
                 r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:description["\']',
                 r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)'):
@@ -184,10 +195,10 @@ def fetch_lead(url):
     for m in re.finditer(r"<p[^>]*>(.*?)</p>", page, re.S | re.I):
         t = html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))
         t = re.sub(r"\s+", " ", t).strip()
-        if len(t) >= 80 and clean_text(t):
+        if len(t) >= 60 and clean_text(t):
             parts.append(t)
             n += 1
-        if n >= 5 or len(" ".join(parts)) > 1500:
+        if n >= 8 or len(" ".join(parts)) > 2200:
             break
     out = []
     for t in parts:
@@ -497,7 +508,7 @@ def main():
             post_line, post_button = '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>', None
         where = where_text(place, region)
         body = excerpt(summary, title)
-        if len(body) < 700:
+        if len(body) < 900:
             more = excerpt(fetch_lead(url), title)
             if len(more) > len(body):
                 body = more
