@@ -53,6 +53,7 @@ def map_for(url):
 TYPES = {
     "dtp": ("🚗", "ДТП"), "fire": ("🔥", "Пожар"), "wx": ("⚡", "ЧС и погода"),
     "crime": ("⛔", "Правонарушение"), "tech": ("🆘", "Авария / ЧП"), "mil": ("🪖", "Атака / обстрел"),
+    "law": ("🏛", "Решение / закон"),
 }
 
 
@@ -207,7 +208,7 @@ def digest(con, now):
     row = con.execute("SELECT v FROM meta WHERE k='last_digest'").fetchone()
     if row and row[0] == day:
         return
-    rows = con.execute("SELECT title, type, region, place FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом' ORDER BY ts DESC",
+    rows = con.execute("SELECT title, type, region, place FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом' AND type != 'law' ORDER BY ts DESC",
                        (now - 86400,)).fetchall()
     if len(rows) < 10:
         return
@@ -262,7 +263,7 @@ def weekly(con, now):
     day = time.strftime("%Y-%m-%d", msk)
     if _meta_get(con, "last_weekly") == day:
         return
-    rows = con.execute("SELECT type, region, ts FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом'",
+    rows = con.execute("SELECT type, region, ts FROM incidents WHERE ts >= ? AND region != '' AND region != 'За рубежом' AND type != 'law'",
                        (now - 7 * 86400,)).fetchall()
     if len(rows) < 30:
         return
@@ -492,7 +493,7 @@ def main():
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
         post_line, post_button = map_for(url)
-        if region == "За рубежом":  # другая страна: на карте точки нет, даём только подписку без ссылки на карту
+        if region == "За рубежом" or typ == "law":  # другая страна или рубрика решений: на карте точки нет, даём только подписку без ссылки на карту
             post_line, post_button = '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>', None
         where = where_text(place, region)
         body = excerpt(summary, title)

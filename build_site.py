@@ -46,6 +46,8 @@ def tidy(rows):
             kept.append(r)
             sigs.append(t)
     for r in kept:
+        if r.get("type") == "law":
+            r["nomap"] = 1  # рубрика «Решения и законы»: только лента и канал
         if r.get("region") == "За рубежом":
             r["place"] = nominative(r.get("place") or "")
             r["nomap"] = 1  # другие страны: только в ленте, без точки на карте
