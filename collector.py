@@ -231,7 +231,7 @@ def stem(name):
     return name[:-1] if name[-1] in "аяьйеыио" else name
 
 
-CTX = r"центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|город\w*|черт\w+|окрестност\w+|территори\w+"
+CTX = r"центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|город\w*|черт\w+|окрестност\w+|территори\w+|полици\w*|прокуратур\w*|следовател\w*|суд\w*|СК|МЧС|ГИБДД|ГУ МВД|УМВД"
 
 
 def _wstem(w):
@@ -580,32 +580,54 @@ def pull_submissions(con):
     return n
 
 
+def _norm_reg(r):
+    return (r or "").split("—")[0].split("(")[0].strip().lower()
+
+
 def audit_places(con):
-    """Разовая проверка: у записей за 14 дней область метки не совпадает с областью из текста -> пересчитать место."""
+    """Проверка мест за 14 дней: область метки не совпадает с областью из текста -> пересчитать.
+    Города из заголовка надёжнее подсказки региона, а новости про несколько областей не трогаем."""
+    con.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
     since = int(time.time()) - 14 * 86400
-    rows = con.execute("SELECT url,title,summary,region,source,type FROM incidents WHERE lat IS NOT NULL AND ts>? AND source!='Подписчик' "
+    rows = con.execute("SELECT url,title,summary,region,place,source FROM incidents WHERE lat IS NOT NULL AND ts>? AND source!='Подписчик' "
                        "AND type!='mil' AND region IS NOT NULL AND region!='За рубежом'", (since,)).fetchall()
-    bad = fixed = 0
-    for url, title, summary, region, source, typ in rows:
-        text = (title or "") + ". " + (summary or "")
+    repair = not con.execute("SELECT 1 FROM meta WHERE k='audit_repair_1'").fetchone()
+    bad = fixed = back = 0
+    for url, title, summary, region, place, source in rows:
+        title = title or ""
+        text = title + ". " + (summary or "")
+        tcity = next((n for n, rx in GAZ_RE if rx.search(title)), None)
+        res = None
+        if repair and place and _norm_reg(place) == _norm_reg(region) and tcity and GAZETTEER[tcity][2] != region:
+            # разовый откат: прошлая версия проверки могла увести метку с города из заголовка на область
+            res = locate(con, text, CH_DEFAULT.get(source))
+            if res and res[2] != region:
+                back += 1
+                con.execute("UPDATE incidents SET lat=?,lon=?,region=?,place=?,precise=? WHERE url=?", (res[0], res[1], res[2], res[3], res[4], url))
+                print("  возвращено место:", title[:60], "|", region, "->", res[3])
+            continue
         hint = region_hint(text)
-        if not hint or hint == region:
+        if not hint or _norm_reg(hint) == _norm_reg(region) or tcity:
             continue
         own = next((rx for rx, reg, _la, _lo in REG_RE if reg == region), None)
         if own is not None and own.search(text):
-            continue  # область метки тоже названа в тексте: новость про несколько областей, не трогаем
+            continue  # область метки тоже названа в тексте: новость про несколько областей
+        if any(GAZETTEER[n][2] == region and rx.search(text) for n, rx in GAZ_RE):
+            continue  # в тексте назван город области метки
         bad += 1
         res = locate(con, text, CH_DEFAULT.get(source))
-        if not res or res[2] != hint:
+        if not res or _norm_reg(res[2]) != _norm_reg(hint):
             la, lo = next(((la, lo) for _rx, reg, la, lo in REG_RE if reg == hint), (None, None))
             if la is None:
                 continue
             res = (la, lo, hint, hint, 0)
         con.execute("UPDATE incidents SET lat=?,lon=?,region=?,place=?,precise=? WHERE url=?", (res[0], res[1], res[2], res[3], res[4], url))
         fixed += 1
-        print("  исправлено место:", (title or "")[:60], "|", region, "->", res[3])
+        print("  исправлено место:", title[:60], "|", region, "->", res[3])
+    if repair:
+        con.execute("INSERT OR REPLACE INTO meta VALUES('audit_repair_1','1')")
     con.commit()
-    print(f"Проверка мест: проверено {len(rows)}, не сошлось {bad}, исправлено {fixed}")
+    print(f"Проверка мест: проверено {len(rows)}, не сошлось {bad}, исправлено {fixed}, возвращено {back}")
 
 
 def run_once():
