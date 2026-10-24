@@ -488,11 +488,11 @@ def main():
     posted_sigs = [(r[2] or "", _dsig(r[0] or "", r[1] or "")) for r in con.execute(
         "SELECT title, summary, region FROM incidents WHERE posted_at > ?", (now - DUP_HOURS * 3600,))]
     cands = con.execute(
-        "SELECT url, title, type, place, region, summary, img, source FROM incidents "
+        "SELECT url, title, type, place, region, summary, img, source, vid, vurl FROM incidents "
         "WHERE posted_at IS NULL AND ts >= ? AND title != '' AND place != '' ORDER BY ts DESC LIMIT 60",
         (now - FRESH,)).fetchall()
     sent = 0
-    for url, title, typ, place, region, summary, img, source in cands:
+    for url, title, typ, place, region, summary, img, source, vid, vurl in cands:
         if sent >= MAX_POSTS:
             break
         if old_date(title):
@@ -516,8 +516,15 @@ def main():
                 + (f"{html.escape(body)}\n\n" if body else "")
                 + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
         res = None
-        photo = good_photo(img) if USE_PHOTO else ""
-        if USE_PHOTO and not photo:
+        if vurl:  # видео официального канала (МЧС, МВД): публикуем с указанием источника
+            vcap = (head_html(url, title)
+                    + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n🎥 Видео: {html.escape(source.replace(' (Telegram)', ''))}\n\n{post_line}")
+            res = api("sendVideo", {"chat_id": CHANNEL, "video": vurl, "caption": vcap[:1024], "parse_mode": "HTML",
+                                    "supports_streaming": True, "reply_markup": post_button})
+        elif vid:
+            text = text.replace(f"\n\n{post_line}", f"\n🎥 <a href=\"{html.escape(url)}\">Видео в источнике</a>\n\n{post_line}", 1)
+        photo = good_photo(img) if (USE_PHOTO and res is None) else ""
+        if USE_PHOTO and res is None and not photo:
             photo = good_photo(page_image(url))  # в ленте фото нет: пробуем картинку со страницы новости
         if photo:
             cap = text

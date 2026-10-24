@@ -66,3 +66,12 @@ Mash|mash
 Осторожно, новости|ostorozhno_novosti
 Shot|shot_shot
 Агентство чрезвычайных новостей|achnov
+# Официальные каналы (с видео): 4-е поле official = их видео публикуем с указанием источника
+МЧС России|mchs_official||official
+МВД МЕДИА|mediamvd||official
+Ирина Волк МВД|IrinaVolk_MVD||official
+МЧС Самара|mchs_samara|Самарская область|official
+МЧС Мурманск|mchs_murmansk|Мурманская область|official
+МЧС Прикамье|mchs_prikamia|Пермский край|official
+Рязанская полиция|umvd62|Рязанская область|official
+УМВД Ярославской области|umvd76|Ярославская область|official

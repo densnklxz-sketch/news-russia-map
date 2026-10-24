@@ -17,7 +17,7 @@ DAYS = int(os.environ.get("SITE_DAYS", "5"))
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "template.html")
 from foreign import nominative
 
-FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img"
+FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img, vid"
 
 
 DRONE_RE = re.compile(r"бпла|беспилот|дрон|пво\b|сбит\w* (?:над|на подлет)", re.I)
@@ -112,6 +112,8 @@ def build():
     for r in rows:
         if not r.get("img"):
             r.pop("img", None)
+        if not r.get("vid"):
+            r.pop("vid", None)
     html = open(TEMPLATE, encoding="utf-8").read()
     # "</" внутри <script> ломает разметку, поэтому экранируем
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")

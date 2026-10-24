@@ -43,19 +43,22 @@ import socket
 socket.setdefaulttimeout(20)  # зависшая лента не держит запуск дольше 20 секунд
 # Публичные Telegram-каналы без API: файл channels.txt, строки вида  Название|username (без @)
 CHANNELS = []
+CH_OFFICIAL = set()  # официальные каналы (МЧС, МВД): их видео публикуем с указанием источника
 CH_DEFAULT = {}  # место по умолчанию для канала: третье поле в channels.txt
 if os.path.exists("channels.txt"):
     for line in open("channels.txt", encoding="utf-8"):
         if "|" in line and not line.lstrip().startswith("#"):
             parts = [p.strip() for p in line.strip().split("|")]
             CHANNELS.append((parts[0], parts[1].lstrip("@")))
+            if len(parts) > 3 and parts[3].lower() == "official":
+                CH_OFFICIAL.add(parts[0] + " (Telegram)")
             if len(parts) > 2 and parts[2]:
                 CH_DEFAULT[parts[0] + " (Telegram)"] = parts[2]
 
 TG_UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
 
 
-def tg_feed(user):
+def tg_feed(user, official=False):
     """Читает публичную веб-версию канала t.me/s/<канал> и возвращает объект с полем entries."""
     r = requests.get(f"https://t.me/s/{user}", timeout=20, headers={"User-Agent": TG_UA})
     r.raise_for_status()
@@ -83,8 +86,13 @@ def tg_feed(user):
                 ts = datetime.fromisoformat(t.group(1)).timestamp()
             except ValueError:
                 pass
+        vid = 1 if re.search(r"tgme_widget_message_(?:roundvideo|video)|message_video_wrap|js-message_video", chunk) else 0
+        vurl = None
+        if vid and official:  # сам файл берём только у официальных каналов; у остальных только ссылка на оригинал
+            mv = re.search(r'<video[^>]+src="(https://[^"]+)"', chunk)
+            vurl = html.unescape(mv.group(1)) if mv else None
         e = feedparser.FeedParserDict(link="https://t.me/" + post, title=title, summary=" ".join(lines)[:1200],
-                                      published_parsed=time.gmtime(ts))
+                                      published_parsed=time.gmtime(ts), vid=vid, vurl=vurl)
         # фото из чужих каналов не берём: они защищены авторским правом
         out.append(e)
     return type("TgFeed", (), {"entries": out})()
@@ -284,7 +292,7 @@ def db():
         url TEXT PRIMARY KEY, title TEXT, summary TEXT, type TEXT, lat REAL, lon REAL,
         region TEXT, place TEXT, precise INTEGER, ts INTEGER, source TEXT,
         verified INTEGER DEFAULT 0, created_at INTEGER)""")
-    for col in ("img TEXT", "posted_at INTEGER"):
+    for col in ("img TEXT", "posted_at INTEGER", "vid INTEGER", "vurl TEXT"):
         try:
             con.execute("ALTER TABLE incidents ADD COLUMN " + col)
         except sqlite3.OperationalError:
@@ -637,7 +645,7 @@ def run_once():
     added = 0
     for source, feed_url in FEEDS + [(n + " (Telegram)", "tg:" + u) for n, u in CHANNELS]:
         try:
-            feed = tg_feed(feed_url[3:]) if feed_url.startswith("tg:") else feedparser.parse(feed_url, agent=USER_AGENT)
+            feed = tg_feed(feed_url[3:], source in CH_OFFICIAL) if feed_url.startswith("tg:") else feedparser.parse(feed_url, agent=USER_AGENT)
         except Exception as ex:  # одна нерабочая лента не должна ронять весь запуск
             print(f"{source}: ОШИБКА {type(ex).__name__}, пропускаю")
             continue
@@ -671,9 +679,10 @@ def run_once():
                 if u.startswith("https://"):
                     img = u
                     break
-            con.execute("INSERT INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,img) "
-                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
-                        (url, title, summary[:1200], kind, lat, lon, region, place, precise, ts, source, int(time.time()), img))
+            con.execute("INSERT INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,img,vid,vurl) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
+                        (url, title, summary[:1200], kind, lat, lon, region, place, precise, ts, source, int(time.time()), img,
+                         e.get("vid") or 0, e.get("vurl")))
             added += 1
         con.commit()
     print(f"Добавлено: {added}")
