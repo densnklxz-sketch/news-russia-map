@@ -430,7 +430,7 @@
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
         '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+(i.region==="За рубежом"?"":', '+esc(i.region))+'</div>'+
         '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+'<button class="btn" type="button" data-share="'+i.id+'">Поделиться</button>'+
-        '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>';
+        '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+(i.vid?'🎥 Видео · ':'')+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
     });
     if(list.length>feedLimit){
@@ -474,7 +474,7 @@
     sheetId=i.id; var s=$("sheet");
     s.innerHTML=(i.img&&/^https:\/\//.test(i.img)?'<div class="thumb"><img data-pic="1" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'"></div>':'')+
       '<div class="txt">'+tag(i)+'<h3>'+esc(i.title)+'</h3><div class="place">'+esc(i.place)+' · '+esc(when(i))+'</div>'+
-      '<div class="acts"><button class="btn" type="button" data-share="'+i.id+'">Поделиться</button><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+esc(i.source)+' ↗</a></div></div>'+
+      '<div class="acts"><button class="btn" type="button" data-share="'+i.id+'">Поделиться</button><a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+(i.vid?'🎥 Видео · ':'')+esc(i.source)+' ↗</a></div></div>'+
       '<button class="x" type="button" aria-label="Закрыть" id="sx">×</button>';
     s.hidden=false; $("view-map").classList.add("sheetopen"); $("sx").onclick=hideSheet;
     if(pan&&eng){try{eng.pan(i);}catch(e){}}
