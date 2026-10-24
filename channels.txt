@@ -1,0 +1,26 @@
+# Публичные Telegram-каналы. Формат: Название|username (без @). Строки с # пропускаются.
+# В логе у каждого будет "Название (Telegram): N записей"; где 0 — канала нет, он закрыт или без веб-версии.
+# Санкт-Петербург и Ленобласть
+Фонтанка SPB Online|fontankaspb
+ДТП и ЧП СПб|dtp_spb78
+Мегаполис ДТП и ЧП СПб|Megapolisonline
+78 Новости|good78news
+Mash на Мойке|mashmoyka
+Ленобласть 47news|allnews47
+Девяткино онлайн|news9online
+Петербург Ньюс|peterburgnovosti
+Piter News 24|piternews24
+Питер сейчас|spblive
+# Юг и Кавказ
+Подслушано Краснодар ЧП|krsdp
+Ростов ЧП 24|rostovnovostii
+Сочи.ДА|sochy
+# Сибирь и Дальний Восток
+Красноярск.ДА|krasnoyarsk
+NEWS.VL Владивосток|newsvlc
+28News Благовещенск|the28News
+# Федеральные ЧП-каналы (в новостях много регионов)
+Baza|bazabazon
+Mash|mash
+Осторожно, новости|ostorozhno_novosti
+Shot|shot_shot

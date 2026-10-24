@@ -1,91 +1,10 @@
 # Региональные источники. Формат: Название|адрес RSS. Строки с # пропускаются.
-# Адреса составлены по известным шаблонам и из сети не проверялись: нерабочие просто дадут "0 записей" в логе.
-# Федеральные и региональные
-Вести|https://www.vesti.ru/vesti.rss
-Regnum|https://regnum.ru/rss/news
+# Оставлены только ленты, которые отдали записи при проверке 18.10.2026.
 Ura.ru|https://ura.news/rss
-# Санкт-Петербург и Северо-Запад
-Фонтанка|https://www.fontanka.ru/fontanka.rss
-78.ru|https://78.ru/text/rss/
-МК Санкт-Петербург|https://spb.mk.ru/rss/index.xml
-Псковская лента|https://informpskov.ru/rss
-# Центр
-МК Тверь|https://tver.mk.ru/rss/index.xml
-МК Ярославль|https://yar.mk.ru/rss/index.xml
-МК Владимир|https://vladimir.mk.ru/rss/index.xml
-МК Воронеж|https://vrn.mk.ru/rss/index.xml
-МК Рязань|https://ryazan.mk.ru/rss/index.xml
-МК Тула|https://tula.mk.ru/rss/index.xml
-76.ru Ярославль|https://76.ru/text/rss/
 РИА Воронеж|https://riavrn.ru/rss/
-Курские известия|https://kurskadm.ru/rss
-# Поволжье
-НН.ру Нижний Новгород|https://www.nn.ru/text/rss/
-МК Нижний Новгород|https://nn.mk.ru/rss/index.xml
-63.ru Самара|https://63.ru/text/rss/
-МК Самара|https://samara.mk.ru/rss/index.xml
 Волга Ньюс|https://volga.news/rss
-Реальное время Казань|https://realnoevremya.ru/rss/all
 Татар-информ|https://www.tatar-inform.ru/rss
-Бизнес Online Казань|https://www.business-gazeta.ru/rss
-Kazan First|https://kazanfirst.ru/rss
-МК Казань|https://kazan.mk.ru/rss/index.xml
-МК Саратов|https://saratov.mk.ru/rss/index.xml
-МК Волгоград|https://vlg.mk.ru/rss/index.xml
-V1.ru Волгоград|https://v1.ru/text/rss/
-Башинформ Уфа|https://www.bashinform.ru/rss
-МК Уфа|https://ufa.mk.ru/rss/index.xml
-Пенза Taxi|https://penzainform.ru/rss
-# Урал
-Е1 Екатеринбург|https://www.e1.ru/text/rss/
-Znak.com|https://www.znak.com/rss
-74.ru Челябинск|https://74.ru/text/rss/
-59.ru Пермь|https://59.ru/text/rss/
-72.ru Тюмень|https://72.ru/text/rss/
-МК Екатеринбург|https://ekb.mk.ru/rss/index.xml
-МК Челябинск|https://chel.mk.ru/rss/index.xml
-МК Пермь|https://perm.mk.ru/rss/index.xml
-МК Тюмень|https://tmn.mk.ru/rss/index.xml
-Уфа1|https://ufa1.ru/text/rss/
-# Юг
-Кубань 24|https://kuban24.tv/rss
 Кубанские новости|https://kubnews.ru/rss/
-МК Краснодар|https://krd.mk.ru/rss/index.xml
-Юга.ру|https://www.yuga.ru/rss/
-161.ru Ростов|https://161.ru/text/rss/
-Дон24|https://don24.ru/rss.xml
-МК Ростов|https://rostov.mk.ru/rss/index.xml
-Блокнот Краснодар|https://bloknot-krasnodar.ru/rss.php
-Блокнот Ростов|https://bloknot-rostov.ru/rss.php
-Блокнот Волгоград|https://bloknot-volgograd.ru/rss.php
-Блокнот Ставрополь|https://bloknot-stavropol.ru/rss.php
-Блокнот Астрахань|https://bloknot-astrakhan.ru/rss.php
-Блокнот Воронеж|https://bloknot-voronezh.ru/rss.php
-Блокнот Крым|https://bloknot-crimea.ru/rss.php
-Блокнот Севастополь|https://bloknot-sevastopol.ru/rss.php
-Крым-Информ|https://crimea-inform.ru/rss
-Новости Севастополя|https://sevastopol.press/feed
-# Кавказ
 РИА Дагестан|https://riadagestan.ru/rss/
-Чеченская республика|https://chechnyatoday.com/rss
-# Сибирь
-НГС Новосибирск|https://ngs.ru/text/rss/
-Sib.fm|https://sib.fm/rss
 Тайга.инфо|https://tayga.info/rss
-НГС24 Красноярск|https://ngs24.ru/text/rss/
-Newslab Красноярск|https://newslab.ru/rss
-МК Новосибирск|https://nsk.mk.ru/rss/index.xml
-МК Красноярск|https://krsk.mk.ru/rss/index.xml
-МК Омск|https://omsk.mk.ru/rss/index.xml
-Омск Информ|https://omskinform.ru/rss
-Иркутск irk.ru|https://www.irk.ru/rss/
-Томск Tv2|https://tv2.today/rss
-# Дальний Восток
-VL.ru Владивосток|https://www.vl.ru/rss
-PrimaMedia|https://primamedia.ru/rss/
 Хабаровск ДВ Новости|https://dvnovosti.ru/rss/
-Сахалин Sakh.online|https://sakh.online/rss.php
-Камчатка Информ|https://kamchatinfo.com/rss/
-# Официальные источники
-СК России|https://sledcom.ru/rss
-МВД России|https://мвд.рф/rss

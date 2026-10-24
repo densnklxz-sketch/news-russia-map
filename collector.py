@@ -260,10 +260,11 @@ def db():
         url TEXT PRIMARY KEY, title TEXT, summary TEXT, type TEXT, lat REAL, lon REAL,
         region TEXT, place TEXT, precise INTEGER, ts INTEGER, source TEXT,
         verified INTEGER DEFAULT 0, created_at INTEGER)""")
-    try:
-        con.execute("ALTER TABLE incidents ADD COLUMN img TEXT")
-    except sqlite3.OperationalError:
-        pass  # столбец уже есть
+    for col in ("img TEXT", "posted_at INTEGER"):
+        try:
+            con.execute("ALTER TABLE incidents ADD COLUMN " + col)
+        except sqlite3.OperationalError:
+            pass  # столбец уже есть
     con.execute("CREATE TABLE IF NOT EXISTS geocache(q TEXT PRIMARY KEY, lat REAL, lon REAL, region TEXT)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_ts ON incidents(ts)")
     return con
@@ -483,8 +484,50 @@ def clean(s):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip()
 
 
+WORKER_URL = os.environ.get("WORKER_URL", "").strip().rstrip("/")
+WORKER_KEY = os.environ.get("WORKER_KEY", "").strip()
+CHANNEL_USER = os.environ.get("CHANNEL", "@nrmpnews").strip().lstrip("@")
+
+
+def pull_submissions(con):
+    """Новости подписчиков, которые администратор уже опубликовал в канале, добавляем в ленту и на карту (повторно в канал не идут)."""
+    if not (WORKER_URL and WORKER_KEY):
+        return 0
+    try:
+        items = requests.get(WORKER_URL + "/approved", params={"key": WORKER_KEY}, timeout=20).json().get("items", [])
+    except Exception as e:
+        print("предложка: не удалось получить список:", e, file=sys.stderr)
+        return 0
+    n = 0
+    for it in items:
+        text = re.sub(r"[ \t]+", " ", (it.get("text") or "")).strip()
+        mid = it.get("mid")
+        url = f"https://t.me/{CHANNEL_USER}/{mid}"
+        if not mid or len(text) < 20 or con.execute("SELECT 1 FROM incidents WHERE url=?", (url,)).fetchone():
+            continue
+        where = locate(con, text)
+        if not where:
+            print("  предложка: нет места:", text[:70])
+            continue
+        lat, lon, region, place, precise = where
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        title = lines[0]
+        if len(title) < 20 and len(lines) > 1:
+            title += " " + lines[1]
+        ts = int(it.get("ts") or time.time())
+        con.execute("INSERT INTO incidents(url,title,summary,type,lat,lon,region,place,precise,ts,source,verified,created_at,posted_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
+                    (url, title[:160], " ".join(lines)[:1200], classify(text) or "tech", lat, lon, region, place, precise, ts,
+                     "Подписчик", int(time.time()), int(time.time())))
+        n += 1
+        print("  предложка:", title[:70], "|", place)
+    con.commit()
+    return n
+
+
 def run_once():
     con = db()
+    pull_submissions(con)
     added = 0
     for source, feed_url in FEEDS + [(n + " (Telegram)", "tg:" + u) for n, u in CHANNELS]:
         try:
