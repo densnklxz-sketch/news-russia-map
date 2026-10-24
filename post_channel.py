@@ -435,11 +435,28 @@ def src_tail(url, source):
     return f' · <a href="{html.escape(url, quote=True)}">{html.escape(word)}</a>'
 
 
-def head_html(url, title):
-    """Заголовок поста: жирным без ссылки (SOURCE_LINK=1 вернёт ссылку на источник)."""
+STYLE = os.environ.get("POST_STYLE", "short")  # short: эмодзи типа в заголовке, одна строка места, без нижней подписи; old: прежний вид
+
+
+def head_html(url, title, em=""):
+    """Заголовок поста: жирным без ссылки (SOURCE_LINK=1 вернёт ссылку на источник). Эмодзи типа стоит перед заголовком."""
+    pre = f"{em} " if em and STYLE == "short" else ""
     if SOURCE_LINK:
-        return f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
-    return f"<b>{html.escape(title)}</b>\n\n"
+        return f'{pre}<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>\n\n'
+    return f"{pre}<b>{html.escape(title)}</b>\n\n"
+
+
+def meta_line(em, label, where, url, source, extra=""):
+    """Строка под текстом: «📍 Запорожье · ТАСС» (в старом стиле ещё и тип новости)."""
+    lead = "📍 " if STYLE == "short" else f"{em} {label} · 📍 "
+    return f"{lead}{html.escape(where)}{src_tail(url, source)}{extra}"
+
+
+SUB_LINE = '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>'
+
+
+def foot(post_line):
+    return f"\n\n{SUB_LINE}" if STYLE == "short" else f"\n\n{post_line}"
 
 
 def in_window():
@@ -512,17 +529,16 @@ def main():
             more = excerpt(fetch_lead(url), title)
             if len(more) > len(body):
                 body = more
-        text = (head_html(url, title)
+        vextra = f'\n🎥 <a href="{html.escape(url, quote=True)}">Видео в источнике</a>' if (vid and not vurl) else ""
+        text = (head_html(url, title, em)
                 + (f"{html.escape(body)}\n\n" if body else "")
-                + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
+                + meta_line(em, label, where, url, source, vextra) + foot(post_line))
         res = None
         if vurl:  # видео официального канала (МЧС, МВД): публикуем с указанием источника
-            vcap = (head_html(url, title)
-                    + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n🎥 Видео: {html.escape(source.replace(' (Telegram)', ''))}\n\n{post_line}")
+            vcap = (head_html(url, title, em)
+                    + meta_line(em, label, where, url, source, f"\n🎥 Видео: {html.escape(source.replace(' (Telegram)', ''))}") + foot(post_line))
             res = api("sendVideo", {"chat_id": CHANNEL, "video": vurl, "caption": vcap[:1024], "parse_mode": "HTML",
                                     "supports_streaming": True, "reply_markup": post_button})
-        elif vid:
-            text = text.replace(f"\n\n{post_line}", f"\n🎥 <a href=\"{html.escape(url)}\">Видео в источнике</a>\n\n{post_line}", 1)
         photo = good_photo(img) if (USE_PHOTO and res is None) else ""
         if USE_PHOTO and res is None and not photo:
             photo = good_photo(page_image(url))  # в ленте фото нет: пробуем картинку со страницы новости
@@ -530,9 +546,9 @@ def main():
             cap = text
             if len(cap) > 1000:  # лимит подписи к фото 1024: укорачиваем выдержку
                 body_short = excerpt(body, title, limit=max(120, 920 - (len(text) - len(html.escape(body)))))
-                cap = (head_html(url, title)
+                cap = (head_html(url, title, em)
                        + (f"{html.escape(body_short)}\n\n" if body_short else "")
-                       + f"{em} {label} · 📍 {html.escape(where)}{src_tail(url, source)}\n\n{post_line}")
+                       + meta_line(em, label, where, url, source, vextra) + foot(post_line))
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
                                     "parse_mode": "HTML", "reply_markup": post_button})
         if res is None:  # нет фото или Telegram его не принял: обычный пост
