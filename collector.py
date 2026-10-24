@@ -372,6 +372,8 @@ def region_hint(text):
         g = m.group(0)
         if re.search(r"област|кра[йяеюи]|округ|республик", g, re.I) or g.startswith(_HINT_REPUBLICS):
             return reg
+    if re.search(r"Подмосков", text):
+        return "Московская область"
     return None
 
 
@@ -432,9 +434,10 @@ def geocode_place(con, name, hint):
         r = requests.get("https://nominatim.openstreetmap.org/search", timeout=15, headers={"User-Agent": USER_AGENT},
                          params={"q": name + (", " + hint if hint else ""), "format": "jsonv2", "countrycodes": "ru", "limit": 3,
                                  "accept-language": "ru", "addressdetails": 1})
-        for d in r.json():
-            if d.get("type") not in SETTLE_TYPES and d.get("addresstype") not in SETTLE_TYPES:
-                continue
+        found = [d for d in r.json() if d.get("type") in SETTLE_TYPES or d.get("addresstype") in SETTLE_TYPES]
+        if not hint and len({(d.get("address") or {}).get("state", "") for d in found}) > 1:
+            found = []  # одноимённые населённые пункты в разных областях (Заря, Новый...), без подсказки региона не угадать
+        for d in found:
             state = (d.get("address") or {}).get("state", "")
             if hint and max(hint.split(), key=len)[:6].lower() not in state.lower():
                 continue
@@ -577,9 +580,38 @@ def pull_submissions(con):
     return n
 
 
+def audit_places(con):
+    """Разовая проверка: у записей за 14 дней область метки не совпадает с областью из текста -> пересчитать место."""
+    since = int(time.time()) - 14 * 86400
+    rows = con.execute("SELECT url,title,summary,region,source,type FROM incidents WHERE lat IS NOT NULL AND ts>? AND source!='Подписчик' "
+                       "AND type!='mil' AND region IS NOT NULL AND region!='За рубежом'", (since,)).fetchall()
+    bad = fixed = 0
+    for url, title, summary, region, source, typ in rows:
+        text = (title or "") + ". " + (summary or "")
+        hint = region_hint(text)
+        if not hint or hint == region:
+            continue
+        own = next((rx for rx, reg, _la, _lo in REG_RE if reg == region), None)
+        if own is not None and own.search(text):
+            continue  # область метки тоже названа в тексте: новость про несколько областей, не трогаем
+        bad += 1
+        res = locate(con, text, CH_DEFAULT.get(source))
+        if not res or res[2] != hint:
+            la, lo = next(((la, lo) for _rx, reg, la, lo in REG_RE if reg == hint), (None, None))
+            if la is None:
+                continue
+            res = (la, lo, hint, hint, 0)
+        con.execute("UPDATE incidents SET lat=?,lon=?,region=?,place=?,precise=? WHERE url=?", (res[0], res[1], res[2], res[3], res[4], url))
+        fixed += 1
+        print("  исправлено место:", (title or "")[:60], "|", region, "->", res[3])
+    con.commit()
+    print(f"Проверка мест: проверено {len(rows)}, не сошлось {bad}, исправлено {fixed}")
+
+
 def run_once():
     con = db()
     pull_submissions(con)
+    audit_places(con)
     added = 0
     for source, feed_url in FEEDS + [(n + " (Telegram)", "tg:" + u) for n, u in CHANNELS]:
         try:
