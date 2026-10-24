@@ -50,6 +50,8 @@ jobs:
         env:
           DB_PATH: incidents.db
           USER_AGENT: "incident-map-collector/1.0 (https://github.com/${{ github.repository }})"
+          WORKER_URL: ${{ secrets.WORKER_URL }}   # для новостей из предложки (опубликованные администратором)
+          WORKER_KEY: ${{ secrets.WORKER_KEY }}
         run: python collector.py
 
       - name: Публикация в канал
