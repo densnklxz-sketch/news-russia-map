@@ -139,6 +139,11 @@
   .leaflet-container{font:inherit;background:var(--bg);-webkit-tap-highlight-color:transparent}
   .leaflet-control-attribution{font-size:10px}
   .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
+  #promo{position:fixed;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:900;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:14px;padding:10px 38px 10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.3);font-size:13px;line-height:1.35}
+  #promo b{display:block;margin-bottom:6px;font-size:14px}
+  #promo a{display:inline-block;margin:2px 6px 2px 0;padding:7px 12px;border-radius:10px;border:1px solid var(--line);background:var(--chip);color:var(--fg);text-decoration:none;font-weight:600}
+  #promo a.go{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  #promo button{position:absolute;top:4px;right:4px;width:30px;height:30px;border:0;background:none;color:var(--muted);font-size:20px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -218,6 +223,28 @@
     if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
 
   var BOT = "NewsRussiaMapBot";
+  /* Вне Telegram (из рекламы и поиска): счётчик Яндекс Метрики и плашка со ссылками на бота и канал */
+  (function(){
+    if (tg && tg.initData) return;
+    var YM="__YM_ID__"; var ok=/^\d{5,12}$/.test(YM);
+    if (ok) {
+      (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t);a=e.getElementsByTagName(t)[0];k.async=1;k.src=r;a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+      window.ym(+YM,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});
+    }
+    var closed=false; try{closed=sessionStorage.getItem("nm_promo")==="1";}catch(e){}
+    if (closed) return;
+    var d=document.createElement("div"); d.id="promo"; d.setAttribute("role","region"); d.setAttribute("aria-label","Открыть в Telegram");
+    d.innerHTML='<b>Новости России|NRMP: происшествия в Telegram</b>'+
+      '<a class="go" data-g="sub_channel" target="_blank" rel="noopener noreferrer" href="https://t.me/nrmpnews">Подписаться в Telegram</a>'+
+      '<a data-g="open_tg" target="_blank" rel="noopener noreferrer" href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">Карта в Telegram</a>'+
+      '<button type="button" aria-label="Закрыть">×</button>';
+    d.addEventListener("click",function(e){
+      var a=e.target.closest("a[data-g]");
+      if(a&&ok){try{window.ym(+YM,"reachGoal",a.getAttribute("data-g"));}catch(x){}}
+      if(e.target.tagName==="BUTTON"){d.remove();try{sessionStorage.setItem("nm_promo","1");}catch(x){}}
+    });
+    document.body.appendChild(d);
+  })();
   var DATA = __DATA__;
   DATA.sort(function(a,b){return b.ts-a.ts;});
 
