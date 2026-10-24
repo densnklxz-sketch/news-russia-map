@@ -33,18 +33,21 @@ FEEDS = [
     ("МЧС", "https://mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss"),
 ]
 # Свои ленты можно дописать без правки кода: файл feeds.txt, строки вида  Название|https://адрес
+FEED_DEFAULT = {}  # место по умолчанию для региональной ленты: третье поле в feeds.txt
 if os.path.exists("feeds.txt"):
     for line in open("feeds.txt", encoding="utf-8"):
         if "|" in line and not line.lstrip().startswith("#"):
-            name, url = line.strip().split("|", 1)
-            FEEDS.append((name.strip(), url.strip()))
+            fp = [x.strip() for x in line.strip().split("|")]
+            FEEDS.append((fp[0], fp[1]))
+            if len(fp) > 2 and fp[2]:
+                FEED_DEFAULT[fp[0]] = fp[2]
 
 import socket
 socket.setdefaulttimeout(20)  # зависшая лента не держит запуск дольше 20 секунд
 # Публичные Telegram-каналы без API: файл channels.txt, строки вида  Название|username (без @)
 CHANNELS = []
 CH_OFFICIAL = set()  # официальные каналы (МЧС, МВД): их видео публикуем с указанием источника
-CH_DEFAULT = {}  # место по умолчанию для канала: третье поле в channels.txt
+CH_DEFAULT = dict(FEED_DEFAULT)  # место по умолчанию для канала: третье поле в channels.txt (и для лент из feeds.txt)
 if os.path.exists("channels.txt"):
     for line in open("channels.txt", encoding="utf-8"):
         if "|" in line and not line.lstrip().startswith("#"):
