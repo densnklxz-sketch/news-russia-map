@@ -43,11 +43,14 @@ import socket
 socket.setdefaulttimeout(20)  # зависшая лента не держит запуск дольше 20 секунд
 # Публичные Telegram-каналы без API: файл channels.txt, строки вида  Название|username (без @)
 CHANNELS = []
+CH_DEFAULT = {}  # место по умолчанию для канала: третье поле в channels.txt
 if os.path.exists("channels.txt"):
     for line in open("channels.txt", encoding="utf-8"):
         if "|" in line and not line.lstrip().startswith("#"):
-            name, user = line.strip().split("|", 1)
-            CHANNELS.append((name.strip(), user.strip().lstrip("@")))
+            parts = [p.strip() for p in line.strip().split("|")]
+            CHANNELS.append((parts[0], parts[1].lstrip("@")))
+            if len(parts) > 2 and parts[2]:
+                CH_DEFAULT[parts[0] + " (Telegram)"] = parts[2]
 
 TG_UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
 
@@ -70,6 +73,7 @@ def tg_feed(user):
         title = lines[0]
         if len(title) < 20 and len(lines) > 1:
             title = title + " " + lines[1]
+        title = re.sub(r"^\d{1,2}[:.]\d{2}\.?\s*", "", re.sub(r"^[^\w«\"(]+", "", title))
         title = re.sub(r"^[^\w«\"(]+", "", title)[:160]
         t = re.search(r'<time[^>]*datetime="([^"]+)"', chunk)
         ts = time.time()
@@ -227,9 +231,29 @@ def stem(name):
     return name[:-1] if name[-1] in "аяьйеыио" else name
 
 
+CTX = r"центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|город\w*|черт\w+|окрестност\w+|территори\w+"
+
+
+def _wstem(w):
+    """Основа слова для поиска склонений (Нижний -> Нижн, Ростов -> Ростов, Москва -> Моск)."""
+    if w.islower():
+        return re.escape(w)
+    if re.search(r"(ий|ый|ой|ая|яя|ое|ее|ые|ие)$", w) and len(w) > 5:
+        return re.escape(w[:-2])
+    return re.escape(stem(w))
+
+
+def gaz_rx(n):
+    body = r"[\s-]+".join(_wstem(w) + (r"\w*" if not w.islower() else "") for w in re.split(r"[\s-]+", n))
+    return re.compile(r"\b(?:в|во|на|под|около|у|из|к|ко|до|над|возле|близ|вблизи|по|от|через|" + CTX + r")\s+(?:города\s+|г\.\s*)?" + body, re.I)
+
+
+GAZ_RE = [(n, gaz_rx(n)) for n in GAZETTEER]
+
+
 _PREP = r"\b(?:в|во|на|под|около|у|из|к|ко|до|над|возле|близ|вблизи|по|от|через)\s+"
-GAZ_ALIAS = [("Санкт-Петербург", re.compile(_PREP + r"(?:Петербург|Питер)\w*", re.I))]
-GAZ_RE = [(n, re.compile(r"\b(?:в|во|на|под|около|у|из|к|ко|до|над|возле|близ|вблизи|по|от|через)\s+" + re.escape(stem(n)) + r"\w*", re.I)) for n in GAZETTEER]
+GAZ_ALIAS = [("Санкт-Петербург", re.compile(r"\b(?:в|во|на|под|около|у|из|к|ко|до|над|возле|близ|вблизи|по|от|через|" + CTX + r")\s+(?:города\s+)?(?:Петербург|Питер)\w*", re.I))]
+
 GAZ_RE += GAZ_ALIAS
 
 # Другие страны: такие новости идут в ленту и канал, но без точки на карте (регион «За рубежом», координаты не используются).
@@ -327,14 +351,14 @@ GEO_BUDGET = int(os.environ.get("GEO_BUDGET", "70"))  # новых запрос�
 _geo_used = 0
 SETTLE_TYPES = {"city", "town", "village", "hamlet", "suburb", "locality", "isolated_dwelling", "neighbourhood", "quarter"}
 SETTLE_RE = re.compile(
-    r"(?:(?i:\b(?:в|во|на|под|около|возле|близ|вблизи|рядом с|недалеко от|в районе)\s+"
+    r"(?:(?i:\b(?:в|во|на|под|около|возле|близ|вблизи|рядом с|недалеко от|в районе|центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|черт\w+|окрестност\w+|территори\w+)\s+"
     r"(?:(?:селе|села|селу|посёлке|поселке|посёлка|поселка|деревне|деревни|городе|города|станице|станицы|хуторе|хутора|ауле|пгт|микрорайоне)\s+)?)"
     r"|(?i:\b(?:с|д|г|п|ст|х|пос)\.\s*)|(?i:\b(?:село|села|селе|селу|посёлок|посёлка|посёлке|поселок|поселка|поселке|деревня|деревни|деревне|город|города|городе|станица|станицы|станице|хутор|хутора|хуторе|аул|аула|ауле|пгт)\s+))"
-    r"([А-ЯЁ][а-яё]+(?:-[А-ЯЁа-яё][а-яё]+)?(?:\s[А-ЯЁ][а-яё]+)?)")
+    r"([А-ЯЁ][а-яё]+(?:-[А-ЯЁа-яё][а-яё]+){0,2}(?:\s[А-ЯЁ][а-яё]+)?)")
 ADJ_REGION = re.compile(r"(ск|цк)(ой|ая|ий|ую|их|им|ом|ое)$")
 AREA_WORD = re.compile(r"\s*(област|кра[йяеюи]|округ|республик|район|р-н)", re.I)
 STOPCAP = {"России", "Россия", "Российской", "Украине", "Украины", "Белоруссии", "Европе", "Азии", "Сибири", "Подмосковье", "Подмосковья",
-           "Телеграм", "Минобороны", "Москвы", "Москве", "Петербурге", "Петербурга", "Интернете", "Крыму", "Крыма"}
+           "Донбасса", "Донбасс", "Киева", "Харькова", "Одессы", "Телеграм", "Минобороны", "Москвы", "Москве", "Петербурге", "Петербурга", "Интернете", "Крыму", "Крыма"}
 _HINT_REPUBLICS = ("Татарстан", "Башкортостан", "Башкири", "Дагестан", "Чечн", "Крым", "Бурят", "Якут", "Калмык", "Хакас", "Ингуш",
                    "Адыге", "Мордови", "Удмурт", "Чуваш", "Марий", "Карели", "Осети", "Кабардино", "Карачаево")
 
@@ -353,6 +377,9 @@ def region_hint(text):
 
 def name_variants(c):
     """Возможные именительные формы названия из текста (в Махачкале -> Махачкала и т.п.), без внешних библиотек."""
+    if "-" in c and " " not in c:
+        first, rest = c.split("-", 1)
+        return [f + "-" + rest for f in name_variants(first)][:6]
     ws = c.split()
     def tails(w, last):
         out = [w]
@@ -435,6 +462,8 @@ def find_small_town(con, text):
             if c in seen or first in STOPCAP or len(first) < 4:
                 continue
             seen.add(c)
+            if re.match(r"\s*(?:проспект|ул\.|улиц|шоссе|переул|бульвар|набережн|площад|мост|парк|район|област)", text[m.start(1) + len(c):m.start(1) + len(c) + 16], re.I):
+                continue  # это улица, район или область, а не населённый пункт
             if ADJ_REGION.search(first) and AREA_WORD.match(text[m.end():m.end() + 14]):
                 continue  # это название области или района, а не города
             n += 1
@@ -448,9 +477,32 @@ def find_small_town(con, text):
 
 
 
-def locate(con, text):
-    """Вернуть (lat, lon, region, place, precise) или None."""
-    street = STREET_RE.search(text)
+STREET2_RE = re.compile(r"[А-ЯЁ][а-яё]+(?:ом|ой|ем|ей|им)\s+(?:проспекте|шоссе|бульваре|переулке|набережной|площади)")
+
+
+def default_place(con, text, default):
+    """Место по умолчанию для канала («Фонтанка» всегда про Петербург): город, область или «посёлок, область»."""
+    if not default:
+        return None
+    name, _, hint = [x.strip() for x in default.partition(",")]
+    street = STREET_RE.search(text) or STREET2_RE.search(text)
+    if name in GAZETTEER:
+        lat, lon, reg = GAZETTEER[name]
+        if street:
+            hit = geocode(con, f"{street.group(0)}, {name}")
+            if hit:
+                return (*hit[:2], hit[2] or reg, f"{name}, {street.group(0)}", 1)
+        return lat, lon, reg, name, 0
+    for _rx, reg, lat, lon in REG_RE:
+        if reg == name:
+            return lat, lon, reg, reg, 0
+    hit = geocode_place(con, name, hint or None)
+    return (hit[0], hit[1], hit[2], name, 0) if hit else None
+
+
+def locate(con, text, default=None):
+    """Вернуть (lat, lon, region, place, precise) или None. default - место канала по умолчанию."""
+    street = STREET_RE.search(text) or STREET2_RE.search(text)
     city = next((n for n, rx in GAZ_RE if rx.search(text)), None)
     if city and street:
         hit = geocode(con, f"{street.group(0)}, {city}")
@@ -466,7 +518,7 @@ def locate(con, text):
         # регион засчитываем, только если рядом слово "область/край/республика" или предлог места
         if re.search(r"\b(?:в|во|на|по|над|из|юге|севере|западе|востоке)\s+" + rx.pattern, text, re.I):
             return lat, lon, reg, reg, 0
-    for cand in CAND_RE.findall(text)[:2]:
+    for cand in ([] if default else CAND_RE.findall(text)[:2]):
         if cand.split()[0] in STOPCAP or re.match(r"Росси|Российск|Украин|Белорус", cand):
             continue
         hit = geocode(con, cand)
@@ -477,7 +529,7 @@ def locate(con, text):
         for _rx, reg, lat, lon in REG_RE:
             if reg == h:
                 return lat, lon, reg, reg, 0
-    return None
+    return default_place(con, text, default)
 
 
 def clean(s):
@@ -548,7 +600,7 @@ def run_once():
             kind = classify(text)
             if not kind:
                 continue
-            where = locate(con, text)
+            where = locate(con, text, CH_DEFAULT.get(source))
             fp = foreign_place(title, text)
             if fp:
                 print("  за рубежом:", fp, "|", title[:70])
