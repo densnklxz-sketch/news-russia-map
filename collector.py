@@ -58,6 +58,15 @@ if os.path.exists("channels.txt"):
             if len(parts) > 2 and parts[2]:
                 CH_DEFAULT[parts[0] + " (Telegram)"] = parts[2]
 
+# Подвал чужого канала («Поддержи нас подпиской: Макс, ВК, ТГ», ссылки, @имена) в наши посты не берём
+PROMO_RX = re.compile(r'''(?:[\U0001F300-\U0001FAFF☀-➿⬀-⯿️‍\s]*)(?:Поддерж\w*\s+нас|Здесь\s+мы\s+всегда\s+на\s+связи|Мы\s+всегда\s+на\s+связи|На\s+связи\s*\.{2,}|Подробнее\s+(?:на|в)\s+(?:канале|нашем|сайте|соцсетях)|Читайте\s+нас|Читай\s+нас|Подписывайся|Подписывайтесь|Подпишись|Подпишитесь|Подписаться\s+на|Присылай\w*|Прислать\s+новост\w+|Пишите\s+нам|Наш\s+канал|Мы\s+в\s+(?:соцсетях|Max|Макс|ВК|Telegram)|Реклама\s*:|Сотрудничество|\bt\.me/|\bvk\.(?:ru|com)/|\bmax\.ru/|https?://|@\w{4,})''', re.I)
+
+
+def cut_promo(text):
+    m = PROMO_RX.search(text)
+    return text[:m.start()].rstrip() if m else text
+
+
 TG_UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36"
 
 
@@ -72,7 +81,7 @@ def tg_feed(user, official=False):
         if not m or "/" not in post:
             continue
         body = re.sub(r"<br\s*/?>", "\n", m.group(1))
-        body = html.unescape(re.sub(r"<[^>]+>", "", body)).strip()
+        body = cut_promo(html.unescape(re.sub(r"<[^>]+>", "", body)).strip())
         lines = [l.strip() for l in body.split("\n") if l.strip()]
         if not lines or len(body) < 25:
             continue
@@ -362,7 +371,7 @@ GEO_BUDGET = int(os.environ.get("GEO_BUDGET", "70"))  # новых запрос�
 _geo_used = 0
 SETTLE_TYPES = {"city", "town", "village", "hamlet", "suburb", "locality", "isolated_dwelling", "neighbourhood", "quarter"}
 SETTLE_RE = re.compile(
-    r"(?:(?i:\b(?:в|во|на|под|около|возле|близ|вблизи|рядом с|недалеко от|в районе|центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|черт\w+|окрестност\w+|территори\w+)\s+"
+    r"(?:(?i:\b(?:в|во|на|под|у|около|возле|близ|вблизи|рядом с|недалеко от|в районе|центр\w*|окраин\w*|пригород\w*|район\w*|жител\w*|мэр\w*|власт\w*|черт\w+|окрестност\w+|территори\w+)\s+"
     r"(?:(?:селе|села|селу|посёлке|поселке|посёлка|поселка|деревне|деревни|городе|города|станице|станицы|хуторе|хутора|ауле|пгт|микрорайоне)\s+)?)"
     r"|(?i:\b(?:с|д|г|п|ст|х|пос)\.\s*)|(?i:\b(?:село|села|селе|селу|посёлок|посёлка|посёлке|поселок|поселка|поселке|деревня|деревни|деревне|город|города|городе|станица|станицы|станице|хутор|хутора|хуторе|аул|аула|ауле|пгт)\s+))"
     r"([А-ЯЁ][а-яё]+(?:-[А-ЯЁа-яё][а-яё]+){0,2}(?:\s[А-ЯЁ][а-яё]+)?)")
@@ -463,8 +472,9 @@ def geocode_place(con, name, hint):
     return result
 
 
-def find_small_town(con, text):
+def find_small_town(con, text, prefer=None):
     hint = region_hint(text)
+    hints = [h for h in dict.fromkeys([prefer, hint]) if h] or [None]  # регион канала важнее региона из текста: «из Ишима Тюменской области» не место аварии
     seen = set()
     n = 0
     for m in SETTLE_RE.finditer(text):
@@ -484,9 +494,10 @@ def find_small_town(con, text):
             if n > 3:
                 return None
             for v in name_variants(c):
-                hit = geocode_place(con, v, hint)
-                if hit:
-                    return hit[0], hit[1], hit[2], v, 0
+                for h in hints:
+                    hit = geocode_place(con, v, h)
+                    if hit:
+                        return hit[0], hit[1], hit[2], v, 0
     return None
 
 
@@ -514,6 +525,19 @@ def default_place(con, text, default):
     return (hit[0], hit[1], hit[2], name, 0) if hit else None
 
 
+def default_region(default):
+    """Область места по умолчанию канала: «Екатеринбург» -> «Свердловская область», «Кстово, Нижегородская область» -> «Нижегородская область»."""
+    if not default:
+        return None
+    name, _, hint = [x.strip() for x in default.partition(",")]
+    if hint:
+        return hint
+    if name in GAZETTEER:
+        reg = GAZETTEER[name][2]
+        return reg if re.search(r"област|край|республик|округ", reg, re.I) or reg in ("Татарстан", "Башкортостан", "Дагестан") else None
+    return name if re.search(r"област|край|республик", name, re.I) else None
+
+
 def locate(con, text, default=None):
     """Вернуть (lat, lon, region, place, precise) или None. default - место канала по умолчанию."""
     street = STREET_RE.search(text) or STREET2_RE.search(text)
@@ -525,7 +549,7 @@ def locate(con, text, default=None):
     if city:
         lat, lon, region = GAZETTEER[city]
         return lat, lon, region, city, 0
-    small = find_small_town(con, text)
+    small = find_small_town(con, text, default_region(default))
     if small:
         return small
     for rx, reg, lat, lon in REG_RE:
