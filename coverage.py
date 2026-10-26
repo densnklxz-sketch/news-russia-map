@@ -58,6 +58,21 @@ def main():
     L.append("|---|---|---|---|")
     for n5, n1, r, s in rows:
         L.append(f"| {r} | {n5} | {n1} | {s} |")
+    # Разбор подозрительных регионов: кто даёт новости и когда была последняя
+    WATCH = [x for x in os.environ.get("WATCH", "Омская область,Ивановская область,Московская область,Мурманская область").split(",") if x]
+    if os.path.exists(DB):
+        con = sqlite3.connect(DB)
+        now = int(time.time())
+        for reg in WATCH:
+            L += ["", f"### Разбор: {reg}", "", "| Источник | 5 дней | 24 ч | Последняя |", "|---|---|---|---|"]
+            for src_name, n5, n1, mx in con.execute(
+                    "SELECT source, COUNT(*), SUM(ts>=?), MAX(ts) FROM incidents WHERE region=? AND ts>=? GROUP BY source ORDER BY COUNT(*) DESC",
+                    (now - 86400, reg, now - 5 * 86400)):
+                L.append(f"| {src_name} | {n5} | {n1 or 0} | {(now - mx) // 3600} ч назад |")
+            L.append("")
+            for t, pl, h in [(r[0], r[1], (now - r[2]) // 3600) for r in con.execute(
+                    "SELECT title, place, ts FROM incidents WHERE region=? ORDER BY ts DESC LIMIT 4", (reg,))]:
+                L.append(f"- {h} ч назад · {pl} · {t[:90]}")
     text = "\n".join(L)
     print(text)
     p = os.environ.get("GITHUB_STEP_SUMMARY")
