@@ -88,6 +88,12 @@ jobs:
           path: incidents.db
           key: db-${{ github.run_id }}
 
+      - name: Охват по регионам (на странице запуска, в блоке Summary)
+        continue-on-error: true
+        env:
+          DB_PATH: incidents.db
+        run: python coverage.py
+
       - name: Собрать страницу
         env:
           DB_PATH: incidents.db
