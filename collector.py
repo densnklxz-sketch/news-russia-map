@@ -412,6 +412,8 @@ def region_hint(text):
         g = m.group(0)
         if re.search(r"област|кра[йяеюи]|округ|республик", g, re.I) or g.startswith(_HINT_REPUBLICS):
             return reg
+    if re.search(r"Приозер|Всеволож|Гатчин|Выборг|Тосненск|Кингисепп|Лужск|Волхов|Сосновый Бор|Кириши|Лодейнопольск|Бокситогорск|Подпорожь|Сланцы|Ломоносовск|Тихвин", text):
+        return "Ленинградская область"
     if re.search(r"Подмосков", text):
         return "Московская область"
     return None
@@ -503,7 +505,7 @@ def find_small_town(con, text, prefer=None):
         cands.append(words[0])
         for c in cands:
             first = c.split()[0]
-            if c in seen or first in STOPCAP or len(first) < 4:
+            if c in seen or first in STOPCAP or len(first) < 4 or re.match(r"(?:Централь|Ассоциац|Городск|Районн|Промышленн|Муниципальн)", first):
                 continue
             seen.add(c)
             if re.match(r"\s*(?:проспект|ул\.|улиц|шоссе|переул|бульвар|набережн|площад|мост|парк|район|област)", text[m.start(1) + len(c):m.start(1) + len(c) + 16], re.I):
@@ -552,6 +554,10 @@ def default_region(default):
     name, _, hint = [x.strip() for x in default.partition(",")]
     if hint:
         return hint
+    if name == "Санкт-Петербург":
+        return "Ленинградская область"  # посёлок в посте петербургского канала почти всегда в Ленобласти
+    if name == "Москва":
+        return "Московская область"
     if name in GAZETTEER:
         reg = GAZETTEER[name][2]
         return reg if re.search(r"област|край|республик|округ", reg, re.I) or reg in ("Татарстан", "Башкортостан", "Дагестан") else None
