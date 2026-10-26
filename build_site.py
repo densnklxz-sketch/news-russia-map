@@ -32,8 +32,8 @@ MIL_MAP_HOURS = int(os.environ.get("MIL_MAP_HOURS", "24"))  # сколько ч�
 
 
 # Атаки и обстрелы на карте: только значимые (пострадавшие, ущерб, инфраструктура), не больше N на регион. В ленте остаются все.
-MIL_MIN_SCORE = int(os.environ.get("MIL_MIN_SCORE", "2"))
-MIL_PER_REGION = int(os.environ.get("MIL_PER_REGION", "3"))
+MIL_MIN_SCORE = int(os.environ.get("MIL_MIN_SCORE", "3"))
+MIL_PER_REGION = int(os.environ.get("MIL_PER_REGION", "2"))
 _MIL_W = [
     (3, re.compile(r"погиб|убит|ранен|ранил|пострада|жертв|тяжел\w+ состоя", re.I)),
     (2, re.compile(r"пожар|возгоран|загорел|повре[жд]|разруш|обруш|попадан|прилёт|прилет|взрыв|упал\w*|обломк|выбит\w+ стекл", re.I)),
@@ -49,6 +49,56 @@ def mil_score(r):
     if sc == 0 and _MIL_ROUTINE.search(t):
         sc = -1  # сводка «сбито N беспилотников» без последствий
     return sc
+
+
+# Остальные категории на карте: только самое важное. Порог значимости и лимит «на регион в сутки»; в ленте и канале остаётся всё.
+MAP_RULES = {  # тип: (минимальный балл, не больше на регион за сутки)
+    "dtp": (3, 2), "fire": (3, 2), "crime": (3, 2), "tech": (3, 2), "wx": (2, 3),
+}
+_IMP_W = [
+    (5, re.compile(r"убит\w*|убийств\w*|застрелен\w*|погиб\w*|гибел|смерт|скончал|унёс\w* жизн|унес\w* жизн|найден\w* мертв|тела\b", re.I)),
+    (3, re.compile(r"пострада\w*|ранен\w*|ранил|госпитализ\w*|травм|жертв|в реанимац|тяжел\w+ состоя", re.I)),
+    (3, re.compile(r"массов\w+|крупн\w+|мощн\w+|цепн\w+|серьёзн\w+|серьезн\w+|чрезвычайн\w+|режим ЧС|режим повышенной|стихийн\w+|без света\s+остал|остал\w+ без", re.I)),
+    (2, re.compile(r"эвакуир\w*|эвакуац\w*|обруш\w*|взрыв\w*|горят|горит|площад\w+\s+(?:более\s+)?\d{3,}|\d{3,}\s*(?:кв\.?\s*м|квадрат)|тысяч\w*\s+(?:человек|жител|абонент|домов)|тыс\.\s*(?:человек|жител|абонент)", re.I)),
+    (1, re.compile(r"многоквартир|школ\w*|больниц\w*|детск\w+ сад|автобус|поезд|трасс\w+ М-?\d|федеральн\w+ трасс|перекрыт\w*|заблокирован\w*|ТЦ|торгов\w+ центр|завод|склад", re.I)),
+]
+_NO_HARM = re.compile(r"без пострадавших|никто не пострадал|обошлось без|пострадавших нет|жертв нет", re.I)
+_MINOR = re.compile(r"мошенни|телефонн\w+ мошенн|кража|краж[аи]\b|украл|хищени|взятк|штраф|оштрафова|задержан\w+ за|нетрезв|пьян\w+ за рулём|пьян\w+ за рулем|поймал\w* на|выявил\w* нарушени", re.I)
+
+
+def imp_score(r):
+    t = (r.get("title") or "") + " " + (r.get("summary") or "")[:400]
+    sc = 0
+    no_harm = bool(_NO_HARM.search(t))
+    for w, rx in _IMP_W:
+        if rx.search(t):
+            if no_harm and w >= 3:
+                continue
+            sc += w
+    if _MINOR.search(t):
+        sc -= 2
+    if r.get("img"):
+        sc += 1
+    return sc
+
+
+def trim_map(kept):
+    """Помечает nomap у менее значимых событий: порог баллов и лимит на регион в сутки."""
+    now = time.time()
+    groups = {}
+    for r in kept:
+        rule = MAP_RULES.get(r.get("type"))
+        if not rule or r.get("nomap") or r.get("source") == "Подписчик":
+            continue
+        if imp_score(r) < rule[0]:
+            r["nomap"] = 1
+            continue
+        key = (r.get("type"), r.get("region") or "", int((now - r["ts"]) // 86400))
+        groups.setdefault(key, []).append(r)
+    for (typ, _reg, _d), lst in groups.items():
+        lst.sort(key=lambda r: (-imp_score(r), -r["ts"]))
+        for r in lst[MAP_RULES[typ][1]:]:
+            r["nomap"] = 1
 
 
 def tidy(rows):
@@ -87,6 +137,7 @@ def tidy(rows):
         lst.sort(key=lambda r: (-mil_score(r), -r["ts"]))
         for r in lst[MIL_PER_REGION:]:
             r["nomap"] = 1  # в регионе на карте только самые значимые
+    trim_map(kept)
     slots = set()
     for r in kept:
         if r.get("region") == "Москва" and DRONE_RE.search((r.get("title") or "") + " " + (r.get("summary") or "")[:200]):
