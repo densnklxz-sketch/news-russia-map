@@ -27,11 +27,11 @@ MAP_LINK = "t.me/NewsRussiaMapBot/NewsRussiaMap"
 WORKER_URL = os.environ.get("WORKER_URL", "").strip().rstrip("/")   # адрес Cloudflare Worker для мгновенных ответов (необязательно)
 WORKER_KEY = os.environ.get("WORKER_KEY", "").strip()
 SHARE_URL = "https://t.me/share/url?url=" + "https%3A%2F%2Ft.me%2FNewsRussiaMapBot%2FNewsRussiaMap&text=" + "%D0%9A%D0%B0%D1%80%D1%82%D0%B0%20%D0%BF%D1%80%D0%BE%D0%B8%D1%81%D1%88%D0%B5%D1%81%D1%82%D0%B2%D0%B8%D0%B9%20%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D0%B8"
-TYPE_KEYS = ["dtp", "fire", "wx", "crime", "tech", "mil", "law"]  # порядок битов маски: как в мини-приложении
+TYPE_KEYS = ["dtp", "fire", "wx", "crime", "tech", "mil", "law", "good"]  # порядок битов маски: как в мини-приложении
 TYPES = {
     "dtp": ("🚗", "ДТП"), "fire": ("🔥", "Пожар"), "wx": ("⚡", "ЧС и погода"),
     "crime": ("⛔", "Правонарушение"), "tech": ("🆘", "Авария / ЧП"), "mil": ("🪖", "Атака / обстрел"),
-    "law": ("🏛", "Решение / закон"),
+    "law": ("🏛", "Решение / закон"), "good": ("🌿", "Хорошие новости"),
 }
 START_RE = re.compile(r"^/start(?:@\w+)?(?:\s+n(\d{1,3})_([0-9a-f]{1,8}|0))?\s*$", re.I)
 
@@ -94,9 +94,9 @@ def main():
                 cid = int(it["chat_id"])
                 h = str(it.get("hash") or "0")
                 region = "" if h == "0" else regions.get(h, "")
-                con.execute("INSERT OR IGNORE INTO subs VALUES(?,?,?,?,?)", (cid, int(it.get("mask", 63)) & 63, region, 1, now))
+                con.execute("INSERT OR IGNORE INTO subs VALUES(?,?,?,?,?)", (cid, int(it.get("mask", 63)) & 255, region, 1, now))
                 con.execute("UPDATE subs SET mask=?, region=?, active=? WHERE chat_id=?",
-                            (int(it.get("mask", 63)) & 63, region, 1 if it.get("active", True) else 0, cid))
+                            (int(it.get("mask", 63)) & 255, region, 1 if it.get("active", True) else 0, cid))
             print("Подписки из Worker синхронизированы.")
         except Exception as e:
             print(f"  Worker недоступен ({type(e).__name__}), используем только getUpdates.")
@@ -121,7 +121,7 @@ def main():
         sm = START_RE.match(text)
         low = text.lower()
         if sm:
-            mask = (int(sm.group(1)) if sm.group(1) else 63) & 63
+            mask = (int(sm.group(1)) if sm.group(1) else 63) & 255
             h = sm.group(2) or "0"
             region = "" if h == "0" else regions.get(h, "")
             note = ""

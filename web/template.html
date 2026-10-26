@@ -22,19 +22,19 @@
   :root{
     --bg:#EDF1F4; --panel:#FFFFFF; --glass:rgba(255,255,255,.93); --line:#C9D4DD; --fg:#14202B; --muted:#5A6C7C;
     --chip:#E3EAF0; --accent:#D9461F; --on-accent:#fff;
-    --dtp:#C9741A; --fire:#CF3B36; --wx:#2A76CF; --crime:#7656C2; --tech:#18907D; --mil:#B03A7A; --law:#5B6C8F;
+    --dtp:#C9741A; --fire:#CF3B36; --wx:#2A76CF; --crime:#7656C2; --tech:#18907D; --mil:#B03A7A; --law:#5B6C8F; --good:#3E9B4F;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
       --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
-      --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; --law:#8FA3C9; color-scheme:dark;
+      --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; --law:#8FA3C9; --good:#6FD27F; color-scheme:dark;
     }
   }
   :root[data-theme="dark"]{
     --bg:#0D141B; --panel:#141D27; --glass:rgba(20,29,39,.93); --line:#2A3A49; --fg:#E6ECF2; --muted:#8EA0B1;
     --chip:#1D2935; --accent:#FF7A4D; --on-accent:#0D141B;
-    --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; --law:#8FA3C9; color-scheme:dark;
+    --dtp:#F0A04B; --fire:#FF6B63; --wx:#5AA3F5; --crime:#A28BEB; --tech:#3FCDB7; --mil:#E37BB5; --law:#8FA3C9; --good:#6FD27F; color-scheme:dark;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;overflow:hidden;touch-action:manipulation}
@@ -254,7 +254,7 @@
 
   var TYPES = {
     dtp:{e:"🚗",name:"ДТП",c:"var(--dtp)"}, fire:{e:"🔥",name:"Пожары",c:"var(--fire)"}, wx:{e:"⚡",name:"ЧС и погода",c:"var(--wx)"},
-    crime:{e:"⛔",name:"Правонарушения",c:"var(--crime)"}, tech:{e:"🆘",name:"Аварии и ЧП",c:"var(--tech)"}, mil:{e:"🪖",name:"Атаки и обстрелы",c:"var(--mil)"}, law:{e:"🏛",name:"Решения и законы",c:"var(--law)"}
+    crime:{e:"⛔",name:"Правонарушения",c:"var(--crime)"}, tech:{e:"🆘",name:"Аварии и ЧП",c:"var(--tech)"}, mil:{e:"🪖",name:"Атаки и обстрелы",c:"var(--mil)"}, law:{e:"🏛",name:"Решения и законы",c:"var(--law)"}, good:{e:"🌿",name:"Хорошие новости",c:"var(--good)"}
   };
   var $ = function(id){return document.getElementById(id);};
   function crc32(str){
