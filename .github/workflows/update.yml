@@ -111,10 +111,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
           AWS_DEFAULT_REGION: ru-central1
         run: |
-          if [ -z "$AWS_ACCESS_KEY_ID" ]; then echo "Ключ Яндекс Облака не задан, пропускаю"; exit 0; fi
-          aws s3 cp site/ s3://news-russia-map.ru/ --recursive --endpoint-url https://storage.yandexcloud.net \
-            --cache-control "max-age=60" --only-show-errors
-          echo "Сайт скопирован в Яндекс Облако"
+          if [ -z "$AWS_ACCESS_KEY_ID" ]; then echo "::warning title=Яндекс Облако::ключ не задан (секреты YC_S3_KEY_ID и YC_S3_SECRET), копия пропущена"; exit 0; fi
+          if out=$(aws s3 cp site/ s3://news-russia-map.ru/ --recursive --endpoint-url https://storage.yandexcloud.net \
+               --cache-control "max-age=60" --only-show-errors 2>&1); then
+            echo "::notice title=Яндекс Облако::сайт скопирован"
+          else
+            echo "::warning title=Яндекс Облако::копия не удалась: $(echo "$out" | tr '\n' ' ' | cut -c1-300)"
+            exit 1
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
