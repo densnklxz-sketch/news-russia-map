@@ -114,6 +114,10 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           if [ -z "$AWS_ACCESS_KEY_ID" ]; then echo "::warning title=Яндекс Облако::ключ не задан (секреты YC_S3_KEY_ID и YC_S3_SECRET), копия пропущена"; exit 0; fi
+          AWS_ACCESS_KEY_ID=$(printf %s "$AWS_ACCESS_KEY_ID" | tr -d '[:space:]"'); AWS_SECRET_ACCESS_KEY=$(printf %s "$AWS_SECRET_ACCESS_KEY" | tr -d '[:space:]"')
+          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+          aws configure set default.s3.addressing_style path
+          echo "::notice title=Яндекс Облако (проверка)::aws $(aws --version 2>&1 | cut -d' ' -f1); длина id ${#AWS_ACCESS_KEY_ID}, длина секрета ${#AWS_SECRET_ACCESS_KEY}"
           if out=$(aws s3 cp site/ s3://news-russia-map.ru/ --recursive --endpoint-url https://storage.yandexcloud.net \
                --cache-control "max-age=60" --only-show-errors 2>&1); then
             echo "::notice title=Яндекс Облако::сайт скопирован"
