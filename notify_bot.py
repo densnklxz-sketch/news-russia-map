@@ -67,6 +67,9 @@ def words(t):
     return set(re.findall(r"[а-яёa-z0-9]{4,}", t.lower()))
 
 
+from dedupe import sig as _dsig, is_dup as _dis_dup, regions_compatible as _rcomp
+
+
 def similar(a, b):
     wa, wb = words(a), words(b)
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.55
@@ -169,7 +172,7 @@ def main():
         for r in cands:
             if len(picked) >= MAX_PER_USER:
                 break
-            if any(similar(r[1], p[1]) for p in picked):
+            if any(similar(r[1], p[1]) or (_rcomp(r[4], p[4]) and _dis_dup(_dsig(r[1]), _dsig(p[1]))) for p in picked):
                 continue
             picked.append(r)
         if not picked:

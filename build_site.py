@@ -21,7 +21,7 @@ FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, sourc
 
 
 DRONE_RE = re.compile(r"бпла|беспилот|\bдрон|пво\b|сбит\w* (?:над|на подлет)", re.I)
-from dedupe import DUP_HOURS, sig as _sig, is_dup  # повторы одной новости от разных изданий
+from dedupe import DUP_HOURS, sig as _sig, is_dup, same_place, quality  # повторы одной новости от разных изданий
 
 
 def toks(r):
@@ -117,11 +117,14 @@ def tidy(rows):
     for r in rows:
         t = toks(r)
         dup = False
-        for k, kt in zip(reversed(kept), reversed(sigs)):
+        for i in range(len(kept) - 1, -1, -1):
+            k, kt = kept[i], sigs[i]
             if r["ts"] - k["ts"] > DUP_HOURS * 3600:
                 break
-            if (k.get("region") or "") == (r.get("region") or "") and is_dup(t, kt):
+            if same_place(r, k) and is_dup(t, kt):
                 dup = True
+                if quality(r) > quality(k) + 1.5:  # из двойников оставляем лучший: с фото, полнее, из крупного источника
+                    kept[i], sigs[i] = r, t
                 break
         if not dup:
             kept.append(r)

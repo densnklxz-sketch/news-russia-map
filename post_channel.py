@@ -440,7 +440,7 @@ def extras(con, now):
 
 
 from foreign import nominative
-from dedupe import DUP_HOURS, sig as _dsig, is_dup as _dis_dup
+from dedupe import DUP_HOURS, sig as _dsig, is_dup as _dis_dup, regions_compatible as _rcomp
 
 USE_PHOTO = os.environ.get("USE_PHOTO", "1") not in ("0", "false", "")
 BAD_IMG = re.compile(r"logo|favicon|placeholder|default|noimage|no-image|avatar|sprite|\.svg|\.gif|\.ico", re.I)
@@ -576,7 +576,7 @@ def main():
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # старая новость в свежей ленте
             continue
         cur_sig = _dsig(title, summary or "")
-        if any(similar(title, t) for t in recent) or any(rg == (region or "") and _dis_dup(cur_sig, sg) for rg, sg in posted_sigs):
+        if any(similar(title, t) for t in recent) or any(_rcomp(rg, region) and _dis_dup(cur_sig, sg) for rg, sg in posted_sigs):
             con.execute("UPDATE incidents SET posted_at=0 WHERE url=?", (url,))  # дубль чужой новости: не публикуем
             continue
         em, label = TYPES.get(typ, TYPES["tech"])
