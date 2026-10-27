@@ -17,6 +17,9 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://news-russia-map.ru/">
 <meta name="theme-color" content="#0D141B">
+<script>/* тема: по умолчанию тёмная, выбор посетителя запоминается; одинаково на сайте и в мини-приложении Telegram */
+(function(){var t="dark";try{var v=localStorage.getItem("nm_theme");if(v==="light"||v==="dark")t=v;}catch(e){}document.documentElement.setAttribute("data-theme",t);})();
+</script>
 <link rel="canonical" href="https://news-russia-map.ru/">
 <style>
   :root{
@@ -176,7 +179,7 @@
         <div class="chips" id="chips"></div>
       </div>
       <div class="fx" id="fx" hidden>
-        <button class="chip" id="darkbtn" type="button" aria-pressed="true" style="--c:var(--muted)">🌙 Тёмная карта</button>
+        <button class="chip" id="themebtn" type="button" style="--c:var(--muted)">☀️ Светлая тема</button>
         <input id="q" type="search" placeholder="Поиск: город, улица, слово" aria-label="Поиск" autocomplete="off">
         <select id="period" aria-label="Период">
           <option value="1">За 24 часа</option>
@@ -225,8 +228,8 @@
     goFull(); setTimeout(goFull,300); setTimeout(goFull,1000); setTimeout(goFull,2500);
     try { tg.onEvent("fullscreenChanged", function(){ if (DESK) goFull(); }); } catch(e){}
     try { tg.onEvent("fullscreenFailed", function(e){ console.log("fullscreenFailed", e && e.error); }); } catch(e){}
-    try { if (tg.lockOrientation) tg.lockOrientation(); } catch(e){} if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme);
-    if (tg.onEvent) tg.onEvent("themeChanged", function(){ if (tg.colorScheme) document.documentElement.setAttribute("data-theme", tg.colorScheme); if (window.__applyMapTheme) window.__applyMapTheme(); }); }
+    try { if (tg.lockOrientation) tg.lockOrientation(); } catch(e){}
+    /* тему задаёт сама карта (по умолчанию тёмная), а не Telegram: так вид одинаков на сайте и в мини-приложении */ }
 
   var BOT = "NewsRussiaMapBot";
   /* Вне Telegram (из рекламы и поиска): счётчик Яндекс Метрики и плашка со ссылками на бота и канал */
@@ -286,10 +289,8 @@
   /* карта */
   var BUILD = "__BUILD__";  /* время сборки страницы: видно во вкладке «Уведомления», помогает понять, не показывает ли Telegram старую версию */
   var eng = null, lastList = [];   /* eng: движок карты (Leaflet: лёгкая растровая карта) */
-  var darkMapPref = store("nm_darkmap")!=="0";
   function noMap(msg){var d=document.createElement("div"); d.className="nomap"; d.textContent=msg+" (сборка: "+BUILD+")"; $("map").appendChild(d);}
   function isDark(){
-    if(!darkMapPref)return false;
     var t=document.documentElement.getAttribute("data-theme");
     if(t)return t==="dark";
     return !!(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -425,8 +426,18 @@
   regionList.forEach(function(r){var o=document.createElement("option");o.value=r;o.textContent=r;$("region").appendChild(o);});
   $("fbtn").onclick=function(){var h=$("fx").hidden; $("fx").hidden=!h; this.setAttribute("aria-expanded",h);};
   var feedLimit=60;
-  $("darkbtn").setAttribute("aria-pressed",darkMapPref);
-  $("darkbtn").onclick=function(){darkMapPref=!darkMapPref; this.setAttribute("aria-pressed",darkMapPref); store("nm_darkmap",darkMapPref?"1":"0"); applyMapTheme();};
+  function setTheme(t,save){
+    document.documentElement.setAttribute("data-theme",t);
+    if(save)store("nm_theme",t);
+    var dark=t==="dark", b=$("themebtn");
+    if(b)b.textContent=dark?"☀️ Светлая тема":"🌙 Тёмная тема";
+    var c=dark?"#0D141B":"#EDF1F4";
+    try{var m=document.querySelectorAll('meta[name="theme-color"]');for(var k=0;k<m.length;k++)m[k].setAttribute("content",c);}catch(e){}
+    try{var w=window.Telegram&&Telegram.WebApp; if(w){if(w.setHeaderColor)w.setHeaderColor(c); if(w.setBackgroundColor)w.setBackgroundColor(c); if(w.setBottomBarColor)w.setBottomBarColor(c);}}catch(e){}
+    applyMapTheme();
+  }
+  $("themebtn").onclick=function(){setTheme(document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark",true);};
+  setTheme(document.documentElement.getAttribute("data-theme")||"dark",false);
   $("period").onchange=function(){feedLimit=60;render();};
   $("region").onchange=function(){store("nm_viewreg",this.value);feedLimit=60;render(true);markQuick();};
   var qTimer=null;
