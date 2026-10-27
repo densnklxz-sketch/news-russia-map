@@ -107,22 +107,25 @@ jobs:
       - name: Копия сайта в Яндекс Облако
         continue-on-error: true
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
-          AWS_DEFAULT_REGION: ru-central1
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required   # новые версии aws cli добавляют контрольные суммы, которые Object Storage не принимает
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          YC_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
+          YC_SECRET: ${{ secrets.YC_S3_SECRET }}
         run: |
-          if [ -z "$AWS_ACCESS_KEY_ID" ]; then echo "::warning title=Яндекс Облако::ключ не задан (секреты YC_S3_KEY_ID и YC_S3_SECRET), копия пропущена"; exit 0; fi
-          AWS_ACCESS_KEY_ID=$(printf %s "$AWS_ACCESS_KEY_ID" | tr -d '[:space:]"'); AWS_SECRET_ACCESS_KEY=$(printf %s "$AWS_SECRET_ACCESS_KEY" | tr -d '[:space:]"')
-          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-          aws configure set default.s3.addressing_style path
-          echo "::notice title=Яндекс Облако (проверка)::aws $(aws --version 2>&1 | cut -d' ' -f1); длина id ${#AWS_ACCESS_KEY_ID}, длина секрета ${#AWS_SECRET_ACCESS_KEY}"
-          if out=$(aws s3 cp site/ s3://news-russia-map.ru/ --recursive --endpoint-url https://storage.yandexcloud.net \
-               --cache-control "max-age=60" --only-show-errors 2>&1); then
+          if [ -z "$YC_KEY_ID" ]; then echo "::warning title=Яндекс Облако::ключ не задан (секреты YC_S3_KEY_ID и YC_S3_SECRET), копия пропущена"; exit 0; fi
+          KEY=$(printf %s "$YC_KEY_ID" | tr -d '[:space:]"'); SECRET=$(printf %s "$YC_SECRET" | tr -d '[:space:]"')
+          # Простая загрузка через curl с подписью AWS SigV4 (aws cli новых версий не совместим с Object Storage)
+          fail=""
+          for f in site/*; do
+            name=$(basename "$f")
+            case "$name" in *.html) type="text/html; charset=utf-8";; *.xml) type="application/xml";; *.txt) type="text/plain; charset=utf-8";; *) type="application/octet-stream";; esac
+            code=$(curl -sS -o /tmp/yc_resp.txt -w "%{http_code}" --aws-sigv4 "aws:amz:ru-central1:s3" --user "$KEY:$SECRET" \
+              -H "Content-Type: $type" -H "Cache-Control: max-age=60" \
+              -T "$f" "https://storage.yandexcloud.net/news-russia-map.ru/$name") || code="curl-error"
+            [ "$code" = "200" ] || fail="$fail $name:$code $(head -c 200 /tmp/yc_resp.txt | tr '\n' ' ')"
+          done
+          if [ -z "$fail" ]; then
             echo "::notice title=Яндекс Облако::сайт скопирован"
           else
-            echo "::warning title=Яндекс Облако::копия не удалась: $(echo "$out" | tr '\n' ' ' | cut -c1-300)"
+            echo "::warning title=Яндекс Облако::копия не удалась:$fail"
             exit 1
           fi
 
