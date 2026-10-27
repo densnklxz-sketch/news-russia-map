@@ -55,6 +55,8 @@ def mil_score(r):
 MAP_RULES = {  # тип: (минимальный балл, не больше на регион за сутки)
     "dtp": (3, 2), "fire": (3, 2), "crime": (3, 2), "tech": (3, 2), "wx": (2, 3), "good": (-99, 3),
 }
+SMALL_REGION = int(os.environ.get("SMALL_REGION", "40"))  # регион, где за 5 дней меньше стольких записей, считается «тихим»
+SMALL_MIN = int(os.environ.get("SMALL_MIN", "0"))  # порог важности для «тихих» регионов (мелочь вроде мошенничества всё равно не проходит)
 _IMP_W = [
     (5, re.compile(r"убит\w*|убийств\w*|застрелен\w*|погиб\w*|гибел|смерт|скончал|унёс\w* жизн|унес\w* жизн|найден\w* мертв|тела\b", re.I)),
     (3, re.compile(r"пострада\w*|ранен\w*|ранил|госпитализ\w*|травм|жертв|в реанимац|тяжел\w+ состоя", re.I)),
@@ -86,18 +88,24 @@ def trim_map(kept):
     """Помечает nomap у менее значимых событий: порог баллов и лимит на регион в сутки."""
     now = time.time()
     groups = {}
+    total = {}
+    for r in kept:
+        if r.get("type") not in ("mil", "law") and r.get("region") != "За рубежом":
+            total[r.get("region") or ""] = total.get(r.get("region") or "", 0) + 1
     for r in kept:
         rule = MAP_RULES.get(r.get("type"))
         if not rule or r.get("nomap") or r.get("source") == "Подписчик":
             continue
-        if imp_score(r) < rule[0]:
+        small = total.get(r.get("region") or "", 0) < SMALL_REGION  # в «тихих» регионах не режем: там и так мало
+        if imp_score(r) < (SMALL_MIN if small else rule[0]):
             r["nomap"] = 1
             continue
         key = (r.get("type"), r.get("region") or "", int((now - r["ts"]) // 86400))
         groups.setdefault(key, []).append(r)
-    for (typ, _reg, _d), lst in groups.items():
+    for (typ, reg, _d), lst in groups.items():
         lst.sort(key=lambda r: (-imp_score(r), -r["ts"]))
-        for r in lst[MAP_RULES[typ][1]:]:
+        cap = MAP_RULES[typ][1] + (3 if total.get(reg, 0) < SMALL_REGION else 0)
+        for r in lst[cap:]:
             r["nomap"] = 1
 
 
@@ -129,7 +137,7 @@ def tidy(rows):
     mil = [r for r in kept if r.get("type") == "mil" and not r.get("nomap")]
     by_reg = {}
     for r in mil:
-        if mil_score(r) < MIL_MIN_SCORE:
+        if mil_score(r) < MIL_MIN_SCORE - (1 if sum(1 for x in kept if x.get("region") == r.get("region")) < SMALL_REGION else 0):
             r["nomap"] = 1  # мелкие и сводные атаки: только в ленте
         else:
             by_reg.setdefault(r.get("region") or "", []).append(r)
