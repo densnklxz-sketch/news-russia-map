@@ -169,6 +169,10 @@ def build():
     # "</" внутри <script> ломает разметку, поэтому экранируем
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     html = html.replace("__DATA__", data)
+    ym = ""
+    if os.path.exists("ym_id.txt"):  # номер счётчика Яндекс Метрики: одна строка из цифр
+        ym = open("ym_id.txt", encoding="utf-8").read().strip()
+    html = html.replace("__YM_ID__", ym if ym.isdigit() else "")
     # Текстовая версия для поисковиков и тех, у кого не работает JavaScript: последние заголовки
     import html as _h
     site = os.environ.get("SITE_URL", "https://news-russia-map.ru/").strip() or "https://news-russia-map.ru/"
