@@ -107,9 +107,11 @@ PROMO_RX = re.compile(r'''(?:[\U0001F300-\U0001FAFF☀-➿⬀-⯿️‍\s]*)(?:�
 EMOJI_RX = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0F\u200d]+")
 
 
-def excerpt(summary, title, limit=1800):
+def excerpt(summary, title, limit=700):
     """Короткая выдержка из анонса ленты: 1–3 предложения, не длиннее limit. Пусто, если анонс повторяет заголовок."""
     t = re.sub(r"\s+", " ", EMOJI_RX.sub("", summary or "")).strip()
+    t = re.sub(r"(?:^|\s)#[\w\d_]+", " ", t).strip()  # хештеги из чужих каналов («#поиск»)
+    t = re.sub(r"\s+", " ", t)
     m = PROMO_RX.search(t)  # подвал чужого канала: «Поддержи нас подпиской…», ссылки, @имена
     if m:
         t = t[:m.start()].rstrip()
@@ -122,15 +124,34 @@ def excerpt(summary, title, limit=1800):
     t = "".join(x for x in sents if not re.search(r"https?:|www\.|\.ru\b|\.com\b|©|читайте также", x, re.I)).strip()
     # убираем «МОСКВА, 16 окт — РИА Новости.» и «МОСКВА, 16 октября. /ТАСС/.» в начале
     t = re.sub(r"^[А-ЯЁ][А-ЯЁ\- ]{2,30},\s*\d{1,2}\s+[а-яё]+\.?\s*(?:[—–-]\s*[^.]{1,40}\.|/[^/]{1,20}/\.)?\s*", "", t)
+    # источник сам обрезал текст («…на ул….», «...»): последнее предложение неполное, убираем его
+    if re.search(r"(?:…|\.{3})\.?\s*$", t) or "…" in t[-60:]:
+        full = re.findall(r"[^.!?…]+[.!?»)]+(?=\s|$)", t.replace("…", "\u0001"))
+        full = [x for x in full if "\u0001" not in x]
+        t = " ".join(x.strip() for x in full).strip()
+    # повторы одного и того же предложения
+    seen, uniq = set(), []
+    for x in re.findall(r"[^.!?]+[.!?»)]*\s*", t):
+        k = re.sub(r"\W+", " ", x.lower()).strip()
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(x)
+    t = "".join(uniq).strip()
     if len(t) < 40 or similar(t, title) and len(words(t) - words(title)) < 4:
         return ""
-    if len(t) <= limit:
-        return t
-    cut = t[:limit]
-    ends = [m.end() for m in re.finditer(r"[.!?»)](?=\s|$)", cut)]
-    if ends and ends[-1] > 120:
-        return cut[:ends[-1]].strip()
-    return cut.rsplit(" ", 1)[0].rstrip(",;:—– ") + "…"
+    # как в коротких новостных каналах: не больше четырёх законченных предложений
+    sents = re.findall(r"[^.!?]+[.!?»)]*\s*", t)
+    out, total = [], 0
+    for x in sents[:4]:
+        if out and total + len(x) > limit:
+            break
+        out.append(x)
+        total += len(x)
+    t = "".join(out).strip()
+    if len(t) > limit * 1.4:  # одно очень длинное предложение: режем по запятой
+        cut = t[:limit]
+        t = cut.rsplit(",", 1)[0].rstrip(",;:—– ") + "." if "," in cut[60:] else cut.rsplit(" ", 1)[0].rstrip(",;:—– ") + "."
+    return t
 
 
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]

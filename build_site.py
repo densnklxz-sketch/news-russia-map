@@ -20,7 +20,7 @@ from foreign import nominative
 FIELDS = "url, title, summary, type, lat, lon, region, place, precise, ts, source, img, vid"
 
 
-DRONE_RE = re.compile(r"бпла|беспилот|дрон|пво\b|сбит\w* (?:над|на подлет)", re.I)
+DRONE_RE = re.compile(r"бпла|беспилот|\bдрон|пво\b|сбит\w* (?:над|на подлет)", re.I)
 from dedupe import DUP_HOURS, sig as _sig, is_dup  # повторы одной новости от разных изданий
 
 
