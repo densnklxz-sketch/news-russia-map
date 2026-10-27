@@ -281,6 +281,22 @@ GAZ_ALIAS = [("Санкт-Петербург", re.compile(r"\b(?:в|во|на|п
 
 GAZ_RE += GAZ_ALIAS
 
+# «на Жуковского», «на Королёва»: это улица (родительный падеж фамилии после «на»), а не город Жуковский / Королёв.
+# Про город так не пишут: «в Жуковском», «в Королёве».
+_NA_STREET = re.compile(r"^на\s+\S+(?:ого|его)$", re.I)
+
+
+def city_in(text):
+    """Город из справочника, упомянутый в тексте (без улиц вида «на Жуковского»)."""
+    for n, rx in GAZ_RE:
+        for m in rx.finditer(text):
+            if not _NA_STREET.match(m.group(0)):
+                return n
+    return None
+
+
+NA_STREET_RE = re.compile(r"\bна\s+([А-ЯЁ][а-яё]+(?:ого|его))\b(?!\s+(?:район|област|кра|округ|проспект|шоссе|бульвар|переул))")
+
 # Другие страны: такие новости идут в ленту и канал, но без точки на карте (регион «За рубежом», координаты не используются).
 import foreign as _foreign
 FOREIGN_REGION = "За рубежом"
@@ -580,7 +596,7 @@ def default_region(default):
 def locate(con, text, default=None):
     """Вернуть (lat, lon, region, place, precise) или None. default - место канала по умолчанию."""
     street = STREET_RE.search(text) or STREET2_RE.search(text)
-    city = next((n for n, rx in GAZ_RE if rx.search(text)), None)
+    city = city_in(text)
     if city and street:
         hit = geocode(con, f"{street.group(0)}, {city}")
         if hit:
@@ -588,6 +604,14 @@ def locate(con, text, default=None):
     if city:
         lat, lon, region = GAZETTEER[city]
         return lat, lon, region, city, 0
+    if default:
+        m = NA_STREET_RE.search(text)  # «ДТП на Жуковского» в канале НГС Новосибирск: улица в городе канала
+        if m:
+            name = default.partition(",")[0].strip()
+            hit = geocode(con, f"улица {m.group(1)}, {name}")
+            if hit:
+                return (*hit[:2], hit[2] or default_region(default) or (GAZETTEER[name][2] if name in GAZETTEER else name),
+                        f"{name}, улица {m.group(1)}", 1)
     small = find_small_town(con, text, default_region(default))
     if small:
         return small
@@ -670,7 +694,23 @@ def audit_places(con):
     for url, title, summary, region, place, source in rows:
         title = title or ""
         text = title + ". " + (summary or "")
-        tcity = next((n for n, rx in GAZ_RE if rx.search(title)), None)
+        fp = foreign_place(title, text)
+        if fp:  # новость про другую страну (словарь стран пополняется): убрать с карты
+            con.execute("UPDATE incidents SET lat=0,lon=0,region=?,place=?,precise=0 WHERE url=?", (FOREIGN_REGION, fp, url))
+            fixed += 1
+            print("  за рубежом (исправлено):", title[:60], "|", place, "->", fp)
+            continue
+        old_city = next((n for n, rx in GAZ_RE if rx.search(text)), None)
+        if (place in GAZETTEER and old_city == place and city_in(text) != place) or (
+                place and re.match(r"(?:Централь|Ассоциац|Городск|Районн|Промышленн|Муниципальн)", place)):
+            # метка стояла в городе из-за улицы «на Жуковского» или на слове, которое не название места
+            res = locate(con, text, CH_DEFAULT.get(source))
+            if res and (res[3], res[2]) != (place, region):
+                con.execute("UPDATE incidents SET lat=?,lon=?,region=?,place=?,precise=? WHERE url=?", (res[0], res[1], res[2], res[3], res[4], url))
+                fixed += 1
+                print("  исправлено место:", title[:60], "|", place, "->", res[3])
+            continue
+        tcity = city_in(title)
         res = None
         if repair and place and _norm_reg(place) == _norm_reg(region) and tcity and GAZETTEER[tcity][2] != region:
             # разовый откат: прошлая версия проверки могла увести метку с города из заголовка на область
