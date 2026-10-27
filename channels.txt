@@ -84,3 +84,4 @@ Shot|shot_shot
 Иваново|ivanovoc|Иваново
 Мурманск СМИ|murmansk_smi|Мурманск
 360 Телеканал|tv360|Московская область
+NewDay News|ndnews
