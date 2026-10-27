@@ -154,6 +154,33 @@ def excerpt(summary, title, limit=700):
     return t
 
 
+RUBRIC_RX = re.compile(r"^\W*(?:Уральский\s+меридиан|Главное|Срочно|Молния|Важно|Эксклюзив|Подробности|Горячая\s+линия|Происшествия|Криминал)(?:\s*[:\-—|/]+\s*|\s+(?=[А-ЯЁA-Z«\"]))")
+FACT_RX = re.compile(
+    r"\b\d{1,3}-летн\w+|\b\d{1,3}\s(?:лет|года|год)\b"
+    r"|\b\d[\d\s,.]*\s?(?:млн|млрд|тыс\.?)?\s?(?:руб\w*|₽|долл\w*|евро)"
+    r"|\b\d[\d,.]*\s?(?:кг|граммов|грамма|грамм|км|литров|тонн\w*|гектар\w*|кв\. ?м)(?![а-яё])"
+    r"|\b\d+\s+(?:человек\w*|погибш\w*|пострадавш\w*|раненых)"
+    r"|\bпогиб\w*|\bпострада\w*", re.I)
+
+
+def clean_title(t):
+    """Служебная рубрика источника в начале заголовка («Уральский меридиан В Екатеринбурге…»)."""
+    return RUBRIC_RX.sub("", t or "", count=1).strip() or t
+
+
+def fmt_body(body):
+    """Экранирует текст и выделяет жирным до двух ключевых фактов (возраст, сумма, число пострадавших)."""
+    t = html.escape(body)
+    n = [0]
+
+    def b(m):
+        if n[0] >= 2:
+            return m.group(0)
+        n[0] += 1
+        return "<b>" + m.group(0) + "</b>"
+    return FACT_RX.sub(b, t)
+
+
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
 
@@ -557,6 +584,7 @@ def main():
         if region == "За рубежом" or typ == "law":  # другая страна или рубрика решений: на карте точки нет, даём только подписку без ссылки на карту
             post_line, post_button = '👉 Новости России|NRMP <a href="https://t.me/nrmpnews">Подписаться</a>', None
         where = where_text(place, region)
+        title = clean_title(title)
         body = excerpt(summary, title)
         if len(body) < 900:
             more = excerpt(fetch_lead(url), title)
@@ -564,7 +592,7 @@ def main():
                 body = more
         vextra = f'\n🎥 <a href="{html.escape(url, quote=True)}">Видео в источнике</a>' if (vid and not vurl) else ""
         text = (head_html(url, title, em)
-                + (f"{html.escape(body)}\n\n" if body else "")
+                + (f"{fmt_body(body)}\n\n" if body else "")
                 + meta_line(em, label, where, url, source, vextra) + foot(post_line))
         res = None
         if vurl:  # видео официального канала (МЧС, МВД): публикуем с указанием источника
@@ -580,7 +608,7 @@ def main():
             if len(cap) > 1000:  # лимит подписи к фото 1024: укорачиваем выдержку
                 body_short = excerpt(body, title, limit=max(120, 920 - (len(text) - len(html.escape(body)))))
                 cap = (head_html(url, title, em)
-                       + (f"{html.escape(body_short)}\n\n" if body_short else "")
+                       + (f"{fmt_body(body_short)}\n\n" if body_short else "")
                        + meta_line(em, label, where, url, source, vextra) + foot(post_line))
             res = api("sendPhoto", {"chat_id": CHANNEL, "photo": photo, "caption": cap[:1024],
                                     "parse_mode": "HTML", "reply_markup": post_button})
