@@ -110,6 +110,8 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_S3_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_S3_SECRET }}
           AWS_DEFAULT_REGION: ru-central1
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required   # новые версии aws cli добавляют контрольные суммы, которые Object Storage не принимает
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           if [ -z "$AWS_ACCESS_KEY_ID" ]; then echo "::warning title=Яндекс Облако::ключ не задан (секреты YC_S3_KEY_ID и YC_S3_SECRET), копия пропущена"; exit 0; fi
           if out=$(aws s3 cp site/ s3://news-russia-map.ru/ --recursive --endpoint-url https://storage.yandexcloud.net \
