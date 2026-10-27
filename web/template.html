@@ -144,6 +144,8 @@
   .leaflet-control-attribution{font-size:10px}
   .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
   #promo{position:fixed;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:900;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:14px;padding:10px 38px 10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.3);font-size:13px;line-height:1.35}
+  body:has(#sheet:not([hidden])) #promo{display:none}  /* плашка не должна перекрывать карточку события */
+  @media (max-height:520px){#promo{display:none}}
   #promo b{display:block;margin-bottom:6px;font-size:14px}
   #promo a{display:inline-block;margin:2px 6px 2px 0;padding:7px 12px;border-radius:10px;border:1px solid var(--line);background:var(--chip);color:var(--fg);text-decoration:none;font-weight:600}
   #promo a.go{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
