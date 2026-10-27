@@ -146,6 +146,19 @@
   .leaflet-container{font:inherit;background:var(--bg);-webkit-tap-highlight-color:transparent}
   .leaflet-control-attribution{font-size:10px}
   .nomap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:70px 24px 24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.4}
+  /* широкий экран: лента слева, справа сводка (на телефоне сводки нет) */
+  #feedside{display:none}
+  @media (min-width:1000px){
+    .feedwrap{display:flex;gap:20px;justify-content:center;align-items:flex-start}
+    #feedlist{flex:0 1 640px;min-width:0}
+    #feedside{display:flex;flex-direction:column;gap:12px;flex:0 0 340px;position:sticky;top:0}
+    #feedside .panel{margin:0;max-width:none}
+    .sbig{font-size:34px;font-weight:700;line-height:1}
+    .srow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;font-size:13px}
+    .sbar{grid-column:1/3;height:5px;border-radius:3px;background:var(--chip);overflow:hidden}
+    .sbar i{display:block;height:100%;background:var(--c);border-radius:3px}
+    #feedside a.btn{text-decoration:none;text-align:center}
+  }
   #promo{position:fixed;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:900;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:14px;padding:10px 38px 10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.3);font-size:13px;line-height:1.35}
   body:has(#sheet:not([hidden])) #promo{display:none}  /* плашка не должна перекрывать карточку события */
   @media (max-height:520px){#promo{display:none}}
@@ -169,7 +182,7 @@
       </button>
       <div id="sheet" hidden></div>
     </section>
-    <section class="view" id="view-feed" aria-label="Лента"><div class="scroll" id="feedscroll"><div id="feedlist"></div></div></section>
+    <section class="view" id="view-feed" aria-label="Лента"><div class="scroll" id="feedscroll"><div class="feedwrap"><div id="feedlist"></div><aside id="feedside" aria-label="Сводка"></aside></div></div></section>
     <section class="view" id="view-notify" aria-label="Уведомления"><div class="scroll" id="notifyscroll"></div></section>
     <div class="filters" id="filters">
       <div class="frow">
@@ -458,6 +471,22 @@
   function credit(i){return '<span class="credit">Фото: '+esc(i.source)+'</span>';}
   function picHtml(i){return i.img&&/^https:\/\//.test(i.img)?'<div class="pic"><img data-pic="1" loading="lazy" referrerpolicy="no-referrer" alt="" src="'+esc(i.img)+'">'+credit(i)+'</div>':'';}
 
+  function renderSide(all){
+    var box=$("feedside"); if(!box)return;
+    var since=Date.now()/1000-86400, day=all.filter(function(i){return i.ts>since;}), by={}, reg={}, total=day.length;
+    day.forEach(function(i){by[i.type]=(by[i.type]||0)+1; if(i.region&&i.region!=="За рубежом"&&i.region!=="Подписчик")reg[i.region]=(reg[i.region]||0)+1;});
+    var types=Object.keys(by).sort(function(a,b){return by[b]-by[a];}), max=by[types[0]]||1;
+    var h='<div class="panel"><div class="lab">За последние 24 часа</div><div class="sbig">'+total+'</div><div style="color:var(--muted);font-size:13px">событий на карте и в ленте</div>';
+    types.forEach(function(k){var t=TYPES[k]||TYPES.tech; h+='<div class="srow" style="--c:'+t.c+'"><span>'+t.e+' '+esc(t.name)+'</span><b>'+by[k]+'</b><div class="sbar"><i style="width:'+Math.max(4,Math.round(by[k]/max*100))+'%"></i></div></div>';});
+    h+='</div>';
+    var top=Object.keys(reg).sort(function(a,b){return reg[b]-reg[a];}).slice(0,6);
+    if(top.length){h+='<div class="panel"><div class="lab">Где больше всего</div>'; top.forEach(function(r){h+='<div class="srow"><span>'+esc(r)+'</span><b>'+reg[r]+'</b></div>';}); h+='</div>';}
+    var inTg=!!(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData);
+    h+='<div class="panel"><div class="lab">Новости России|NRMP</div><div style="font-size:13px;color:var(--muted)">Происшествия по всей стране: ДТП, пожары, ЧС и добрые новости. Свежее приходит в Telegram.</div>'+
+       '<a class="btn primary" data-g="sub_channel" target="_blank" rel="noopener noreferrer" href="https://t.me/nrmpnews">Подписаться на канал</a>'+
+       (inTg?'':'<a class="btn" data-g="open_tg" target="_blank" rel="noopener noreferrer" href="https://t.me/NewsRussiaMapBot/NewsRussiaMap">Открыть карту в Telegram</a>')+'</div>';
+    box.innerHTML=h;
+  }
   function render(zoom){
     var all=visible(true), counts={}; all.forEach(function(i){counts[i.type]=(counts[i.type]||0)+1;});
     Object.keys(TYPES).forEach(function(k){$("n-"+k).textContent=counts[k]||0;});
@@ -467,6 +496,7 @@
     lastList=mapList;
     if(eng){try{eng.setPins(mapList.slice(0,400)); if(eng.heat)eng.heat(heatOn,mapList); if(zoom&&!nearPos)eng.fit(mapList);}catch(e){}}
 
+    renderSide(all);
     var box=$("feedlist"); box.textContent="";
     if(!list.length){box.innerHTML='<div class="empty">По выбранным фильтрам происшествий нет.</div>';}
     list.slice(0,feedLimit).forEach(function(i){
