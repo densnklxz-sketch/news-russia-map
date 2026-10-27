@@ -502,7 +502,7 @@
     list.slice(0,feedLimit).forEach(function(i){
       var c=document.createElement("article"); c.className="card";
       c.innerHTML=picHtml(i)+'<div class="cbody"><div class="meta">'+tag(i)+'<span>'+esc(when(i))+'</span></div>'+
-        '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+(i.region==="За рубежом"?"":', '+esc(i.region))+'</div>'+
+        '<h3>'+esc(i.title)+'</h3><p>'+esc(i.summary)+'</p><div class="place">'+esc(i.place)+(i.region==="За рубежом"||i.region===i.place?"":', '+esc(i.region))+'</div>'+
         '<div class="acts">'+(onMap(i)?'<button class="btn primary" type="button" data-show="'+i.id+'">Показать на карте</button>':'')+'<button class="btn" type="button" data-share="'+i.id+'">Поделиться</button>'+
         '<a class="btn" data-ext="1" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(i.url))+'">'+(i.vid?'🎥 Видео · ':'')+esc(i.source)+' ↗</a></div></div>';
       box.appendChild(c);
