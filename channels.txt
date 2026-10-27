@@ -80,3 +80,6 @@ Shot|shot_shot
 Новости Томска|tomsknovosty|Томск
 Томское время|tomsk_time|Томск
 Омск Омская область|Omsk_MIR|Омск
+Омск СМИ|omsk_smi|Омск
+Иваново|ivanovoc|Иваново
+Мурманск СМИ|murmansk_smi|Мурманск
