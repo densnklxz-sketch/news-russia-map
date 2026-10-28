@@ -316,6 +316,91 @@
   function onMap(i){ if(i.nomap) return false; if(i.type==="mil" && Date.now()/1000-i.ts>86400) return false; return (i.region||"")==="Московская область" ? isExact(i) : true; }
   function goTo(i){ if(eng){try{eng.goTo(i);}catch(e){}} }
 
+  /* события в одной точке (центр города) раскладываем по спирали, чтобы метки не лежали друг на друге */
+  function spread(list){
+    var seen={}, pos={};
+    list.forEach(function(i){
+      var key=i.lat.toFixed(3)+","+i.lon.toFixed(3), k=seen[key]||0; seen[key]=k+1;
+      if(!k){pos[i.id]=[i.lat,i.lon];return;}
+      var ang=k*2.4, r=0.011*Math.sqrt(k), cl=Math.max(Math.cos(i.lat*Math.PI/180),0.2);
+      pos[i.id]=[i.lat+r*Math.sin(ang), i.lon+r*Math.cos(ang)/cl];
+    });
+    return pos;
+  }
+
+  /* Яндекс Карты: на сайте (в мини-приложении Telegram остаётся Leaflet). Ключ подставляется при сборке. */
+  var YMAPS_KEY="__YMAPS_KEY__";
+  function wantYandex(){
+    var inTg=!!(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData);
+    if(inTg||/[?&]map=osm\b/.test(location.search))return false;
+    return /^[0-9a-f-]{20,}$/i.test(YMAPS_KEY);
+  }
+  function loadYmaps(ok,fail){
+    var done=false, t=setTimeout(function(){if(!done){done=true;fail();}},10000);
+    var sc=document.createElement("script");
+    sc.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(YMAPS_KEY)+"&lang=ru_RU";
+    sc.onerror=function(){if(!done){done=true;clearTimeout(t);fail();}};
+    sc.onload=function(){ if(!window.ymaps){if(!done){done=true;clearTimeout(t);fail();}return;}
+      ymaps.ready(function(){if(!done){done=true;clearTimeout(t);ok();}}); };
+    document.head.appendChild(sc);
+  }
+  function makeYmaps(){
+    var RU=[[42,27],[68,170]], autoRU=true;
+    var map=new ymaps.Map("map",{bounds:RU,controls:[]},{minZoom:2,maxZoom:18,suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true,avoidFractionalZoom:true});
+    map.behaviors.disable("dblClickZoom");
+    ["mousedown","touchstart","wheel"].forEach(function(n){$("map").addEventListener(n,function(){autoRU=false;},{passive:true,capture:true});});
+    try{ new ResizeObserver(function(){ map.container.fitToViewport(); if(autoRU) map.setBounds(RU); }).observe($("map")); }catch(e){}
+    var layouts={};
+    function pinLayout(type,precise){
+      var k=type+(precise?"":"~");
+      if(!layouts[k]){var t=TYPES[type]||TYPES.tech;
+        layouts[k]=ymaps.templateLayoutFactory.createClass('<div class="pin'+(precise?"":" approx")+'" style="--c:'+t.c+';transform:translate(-15px,-15px)">'+t.e+'</div>');}
+      return layouts[k];
+    }
+    var cluster=new ymaps.Clusterer({
+      clusterIconLayout:ymaps.templateLayoutFactory.createClass('<div class="clus" style="transform:translate(-18px,-18px)">{{ properties.geoObjects.length }}</div>'),
+      clusterIconShape:{type:"Circle",coordinates:[0,0],radius:18},
+      gridSize:80,groupByCoordinates:false,clusterHasBalloon:false,clusterHasHint:false,clusterDisableClickZoom:false,maxZoom:16
+    });
+    map.geoObjects.add(cluster);
+    map.events.add("click",hideSheet);
+    var me=null;
+    function ground(){try{return map.panes.get("ground").getElement();}catch(e){return null;}}
+    function theme(){
+      var g=ground(); if(g)g.style.filter=isDark()?"invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.7)":"";
+      $("map").style.background=isDark()?"#1c1b19":"#e8e6e0";
+    }
+    return {
+      name:"yandex", noHeat:true,
+      setPins:function(list){
+        cluster.removeAll();
+        var pos=spread(list);
+        cluster.add(list.map(function(i){
+          var pm=new ymaps.Placemark(pos[i.id],{},{iconLayout:pinLayout(i.type,i.precise),iconShape:{type:"Circle",coordinates:[0,0],radius:15},hasBalloon:false,hasHint:false});
+          pm.events.add("click",function(e){e.stopPropagation&&e.stopPropagation(); showSheet(i,true);});
+          return pm;
+        }));
+      },
+      me:function(p){
+        if(me){map.geoObjects.remove(me);me=null;}
+        if(p){me=new ymaps.Placemark(p,{},{preset:"islands#blueCircleDotIcon"}); map.geoObjects.add(me);}
+      },
+      fit:function(list){
+        if(!list.length)return;
+        autoRU=false;
+        map.setBounds(ymaps.util.bounds.fromPoints(list.map(function(i){return [i.lat,i.lon];})),{checkZoomRange:true,zoomMargin:50}).then(function(){ if(map.getZoom()>9)map.setZoom(9); });
+      },
+      goTo:function(i){autoRU=false; map.setCenter([i.lat,i.lon],Math.max(map.getZoom(),9),{duration:300});},
+      pan:function(i){
+        var z=map.getZoom(), pr=map.options.get("projection"), g=pr.toGlobalPixels([i.lat,i.lon],z), c=map.getGlobalPixelCenter(), h=map.container.getSize()[1];
+        var y=g[1]-c[1]+h/2; if(y>h-210) map.setGlobalPixelCenter([c[0],c[1]+(y-(h-250))],z,{duration:200});
+      },
+      theme:theme,
+      zoom:function(d){map.setZoom(Math.max(2,Math.min(18,map.getZoom()+(d>0?1:-1))),{duration:200});},
+      resize:function(){map.container.fitToViewport(); if(autoRU) map.setBounds(RU);}
+    };
+  }
+
   function makeLeaflet(){
     var map=L.map("map",{zoomControl:false,doubleClickZoom:false,minZoom:2,maxZoom:18,worldCopyJump:false,preferCanvas:true,markerZoomAnimation:false,fadeAnimation:false,zoomSnap:1});
     /* зум одним пальцем, как в Яндекс Картах: двойной тап и, не отпуская, вести вверх/вниз */
@@ -368,14 +453,7 @@
       name:"leaflet",
       setPins:function(list){
         cluster.clearLayers();
-        /* события в одной точке (центр города) раскладываем по спирали, чтобы метки не лежали друг на друге */
-        var seen={}, pos={};
-        list.forEach(function(i){
-          var key=i.lat.toFixed(3)+","+i.lon.toFixed(3), k=seen[key]||0; seen[key]=k+1;
-          if(!k){pos[i.id]=[i.lat,i.lon];return;}
-          var ang=k*2.4, r=0.011*Math.sqrt(k), cl=Math.max(Math.cos(i.lat*Math.PI/180),0.2);
-          pos[i.id]=[i.lat+r*Math.sin(ang), i.lon+r*Math.cos(ang)/cl];
-        });
+        var pos=spread(list);
         cluster.addLayers(list.map(function(i){
           var t=TYPES[i.type]||TYPES.tech;
           var icon=L.divIcon({className:"",html:'<div class="pin'+(i.precise?"":" approx")+'" style="--c:'+t.c+'">'+t.e+'</div>',iconSize:[30,30],iconAnchor:[15,15]});
@@ -406,8 +484,22 @@
   }
 
   function loadMap(){
+    if(wantYandex()){
+      loadYmaps(function(){
+        try{eng=makeYmaps();}catch(e){eng=null; startLeaflet(); return;}
+        $("heatbtn").hidden=true; if(heatOn){heatOn=false;pressed($("heatbtn"),false);}
+        startEngine();
+      }, startLeaflet);
+      return;
+    }
+    startLeaflet();
+  }
+  function startLeaflet(){
     if(typeof L==="undefined"||!L.markerClusterGroup){noMap("Не удалось загрузить карту. Проверьте интернет. Лента и уведомления работают.");return;}
     try{eng=makeLeaflet();}catch(e){eng=null; noMap("Карта не запустилась. Лента и уведомления работают.");return;}
+    startEngine();
+  }
+  function startEngine(){
     try{eng.setPins(lastList.slice(0,400));}catch(e){}
     applyMapTheme(); render(true);
     $("zoomctl").hidden=false;
