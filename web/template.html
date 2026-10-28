@@ -346,7 +346,7 @@
   }
   function makeYmaps(){
     var RU=[[42,27],[68,170]], autoRU=true;
-    var map=new ymaps.Map("map",{bounds:RU,controls:[]},{minZoom:2,maxZoom:18,suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true,avoidFractionalZoom:true});
+    var map=new ymaps.Map("map",{bounds:RU,controls:[]},{minZoom:2,maxZoom:18,yandexMapDisablePoiInteractivity:true,avoidFractionalZoom:true});
     map.behaviors.disable("dblClickZoom");
     ["mousedown","touchstart","wheel"].forEach(function(n){$("map").addEventListener(n,function(){autoRU=false;},{passive:true,capture:true});});
     try{ new ResizeObserver(function(){ map.container.fitToViewport(); if(autoRU) map.setBounds(RU); }).observe($("map")); }catch(e){}
